@@ -1,0 +1,9 @@
+[package]
+name = "authority-service"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = "0.8"
+nillion-nucs = { git = "https://github.com/NillionNetwork/nilvm", rev = "c74c73754a2eaad41a12555bf5f694a341e3796f" }
+
