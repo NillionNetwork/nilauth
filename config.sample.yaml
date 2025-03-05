@@ -6,3 +6,6 @@ private_key:
 
 tokens:
   expiration_seconds: 3024000
+
+metrics:
+  bind_endpoint: 127.0.0.1:39022
