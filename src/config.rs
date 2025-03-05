@@ -11,6 +11,9 @@ pub struct Config {
 
     /// The private key
     pub private_key: PrivateKeyConfig,
+
+    /// Configuration for tokens.
+    pub tokens: TokensConfig,
 }
 
 impl Config {
@@ -42,6 +45,13 @@ pub enum PrivateKeyConfig {
 
     /// The path to the private key.
     Path(PathBuf),
+}
+
+/// The configuration for minted tokens.
+#[derive(Deserialize)]
+pub struct TokensConfig {
+    /// The token expiration in days.
+    pub expiration_days: u64,
 }
 
 impl PrivateKeyConfig {

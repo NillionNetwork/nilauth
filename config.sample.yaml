@@ -3,3 +3,6 @@ server:
 
 private_key:
   hex: 7c5c8d3114ac2410249ca2baae7dec86ac2950a389ac44a5fdca8941b92b6c86
+
+tokens:
+  expiration_days: 5

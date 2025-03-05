@@ -1,4 +1,5 @@
 use axum::extract::State;
+use chrono::Days;
 use nillion_nucs::k256::SecretKey;
 use std::sync::Arc;
 
@@ -8,4 +9,7 @@ pub(crate) type SharedState = State<Arc<AppState>>;
 pub struct AppState {
     /// The server's secret key.
     pub secret_key: SecretKey,
+
+    /// The expiration time for tokens, in days.
+    pub token_expiration: Days,
 }

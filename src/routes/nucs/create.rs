@@ -4,6 +4,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use chrono::Utc;
 use nillion_nucs::k256::ecdsa::{signature::Verifier, Signature};
 use nillion_nucs::{builder::NucTokenBuilder, k256::ecdsa::VerifyingKey, token::Did};
 use serde::{Deserialize, Serialize};
@@ -51,11 +52,21 @@ pub(crate) async fn handler(
         .map_err(|_| (StatusCode::BAD_REQUEST, "signature verification failed").into_response())?;
 
     let requestor_did = Did::nil(request.public_key);
+    let expires_at = Utc::now()
+        .checked_add_days(state.token_expiration)
+        .ok_or_else(|| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "could not generate valid expiration time",
+            )
+                .into_response()
+        })?;
     info!("Minting token for {requestor_did}");
     let token = NucTokenBuilder::delegation([])
         .command(["nil"])
         .subject(requestor_did.clone())
         .audience(requestor_did)
+        .expires_at(expires_at)
         .build(&state.secret_key.clone().into())
         .map_err(|e| {
             error!("Failed to sign token: {e}");
@@ -70,6 +81,7 @@ mod tests {
     use super::*;
     use crate::state::AppState;
     use axum::extract::State;
+    use chrono::Days;
     use nillion_nucs::{
         envelope::NucTokenEnvelope,
         k256::{
@@ -91,6 +103,7 @@ mod tests {
         let server_key = SecretKey::random(&mut rand::thread_rng());
         let state = Arc::new(AppState {
             secret_key: server_key.clone(),
+            token_expiration: Days::new(1),
         });
 
         let client_key = SecretKey::random(&mut rand::thread_rng());
@@ -125,6 +138,7 @@ mod tests {
         let server_key = SecretKey::random(&mut rand::thread_rng());
         let state = Arc::new(AppState {
             secret_key: server_key.clone(),
+            token_expiration: Days::new(1),
         });
 
         let client_key = SecretKey::random(&mut rand::thread_rng());
