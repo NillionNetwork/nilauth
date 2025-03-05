@@ -77,7 +77,14 @@ mod tests {
             SecretKey,
         },
     };
+    use rstest::rstest;
     use std::{ops::Deref, sync::Arc};
+
+    enum InputModifier {
+        Nonce,
+        Signature,
+        PublicKey,
+    }
 
     #[tokio::test]
     async fn valid_request() {
@@ -110,22 +117,38 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn invalid_signature() {
+    #[rstest]
+    #[case::nonce(InputModifier::Nonce)]
+    #[case::signature(InputModifier::Signature)]
+    #[case::public_key(InputModifier::PublicKey)]
+    async fn invalid_signature(#[case] modifier: InputModifier) {
         let server_key = SecretKey::random(&mut rand::thread_rng());
         let state = Arc::new(AppState {
             secret_key: server_key.clone(),
         });
 
+        let client_key = SecretKey::random(&mut rand::thread_rng());
         let payload = serde_json::to_string(&SignablePayload { nonce: [0; 16] }).unwrap();
-        let public_key =
-            hex::decode("03ef993b7e986d25f7cfcd2ec75e752d3c364c2080df6f0d31fe7f58e5bf9a66a5")
-                .unwrap()
+        let signature: Signature = SigningKey::from(client_key.clone()).sign(payload.as_bytes());
+        let signature = signature.to_bytes().try_into().unwrap();
+        let mut request = CreateNucRequest {
+            public_key: client_key
+                .public_key()
+                .to_sec1_bytes()
+                .deref()
                 .try_into()
-                .unwrap();
-        let request = CreateNucRequest {
-            public_key,
-            signature: [0xab; 64],
-            payload: payload.as_bytes().to_vec(),
+                .unwrap(),
+            signature,
+            payload: payload.into(),
+        };
+        match modifier {
+            InputModifier::Nonce => {
+                request.payload = serde_json::to_string(&SignablePayload { nonce: [1; 16] })
+                    .unwrap()
+                    .into()
+            }
+            InputModifier::Signature => request.signature[10] ^= 1,
+            InputModifier::PublicKey => request.public_key[5] ^= 1,
         };
         handler(State(state), Json(request))
             .await
