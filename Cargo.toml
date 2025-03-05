@@ -4,6 +4,19 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+anyhow = "1.0"
 axum = "0.8"
+clap = { version = "4.5", features = ["derive", "env"] }
+config = { version = "0.15", default-features = false, features = ["yaml"] }
+hex = { version = "0.4", features = ["serde"] }
 nillion-nucs = { git = "https://github.com/NillionNetwork/nilvm", rev = "c74c73754a2eaad41a12555bf5f694a341e3796f" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt"] }
+tokio = { version = "1.43", features = ["rt-multi-thread", "macros"] }
+
+[dev-dependencies]
+rand = "0.8"
+rstest = { version = "0.25", default-features = false }
 
