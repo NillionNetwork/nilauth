@@ -1,10 +1,9 @@
 use anyhow::Context;
 use args::Cli;
-use chrono::Days;
 use clap::Parser;
 use config::Config;
 use state::AppState;
-use std::process::exit;
+use std::{process::exit, time::Duration};
 use tokio::net::TcpListener;
 use tracing::info;
 
@@ -18,7 +17,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
     let secret_key = config.private_key.load_key()?;
     let state = AppState {
         secret_key,
-        token_expiration: Days::new(config.tokens.expiration_days),
+        token_expiration: Duration::from_secs(config.tokens.expiration_seconds),
     };
     let router = routes::build_router(state);
     info!("Starting server on {}", config.server.bind_endpoint);

@@ -50,8 +50,8 @@ pub enum PrivateKeyConfig {
 /// The configuration for minted tokens.
 #[derive(Deserialize)]
 pub struct TokensConfig {
-    /// The token expiration in days.
-    pub expiration_days: u64,
+    /// The token expiration in seconds.
+    pub expiration_seconds: u64,
 }
 
 impl PrivateKeyConfig {

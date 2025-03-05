@@ -52,16 +52,8 @@ pub(crate) async fn handler(
         .map_err(|_| (StatusCode::BAD_REQUEST, "signature verification failed").into_response())?;
 
     let requestor_did = Did::nil(request.public_key);
-    let expires_at = Utc::now()
-        .checked_add_days(state.token_expiration)
-        .ok_or_else(|| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "could not generate valid expiration time",
-            )
-                .into_response()
-        })?;
-    info!("Minting token for {requestor_did}");
+    let expires_at = Utc::now() + state.token_expiration;
+    info!("Minting token for {requestor_did}, expires at '{expires_at}'");
     let token = NucTokenBuilder::delegation([])
         .command(["nil"])
         .subject(requestor_did.clone())
@@ -81,7 +73,6 @@ mod tests {
     use super::*;
     use crate::state::AppState;
     use axum::extract::State;
-    use chrono::Days;
     use nillion_nucs::{
         envelope::NucTokenEnvelope,
         k256::{
@@ -90,7 +81,7 @@ mod tests {
         },
     };
     use rstest::rstest;
-    use std::{ops::Deref, sync::Arc};
+    use std::{ops::Deref, sync::Arc, time::Duration};
 
     enum InputModifier {
         Nonce,
@@ -103,7 +94,7 @@ mod tests {
         let server_key = SecretKey::random(&mut rand::thread_rng());
         let state = Arc::new(AppState {
             secret_key: server_key.clone(),
-            token_expiration: Days::new(1),
+            token_expiration: Duration::from_secs(1),
         });
 
         let client_key = SecretKey::random(&mut rand::thread_rng());
@@ -138,7 +129,7 @@ mod tests {
         let server_key = SecretKey::random(&mut rand::thread_rng());
         let state = Arc::new(AppState {
             secret_key: server_key.clone(),
-            token_expiration: Days::new(1),
+            token_expiration: Duration::from_secs(1),
         });
 
         let client_key = SecretKey::random(&mut rand::thread_rng());
