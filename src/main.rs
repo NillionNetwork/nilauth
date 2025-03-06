@@ -1,16 +1,34 @@
 use anyhow::Context;
 use args::Cli;
+use axum::{routing::get, Router};
+use axum_prometheus::{
+    metrics_exporter_prometheus::PrometheusBuilder, EndpointLabel, PrometheusMetricLayerBuilder,
+};
 use clap::Parser;
 use config::Config;
 use state::AppState;
-use std::{process::exit, time::Duration};
-use tokio::net::TcpListener;
+use std::{net::SocketAddr, process::exit, time::Duration};
+use tokio::{join, net::TcpListener};
 use tracing::info;
 
 mod args;
 mod config;
 mod routes;
 mod state;
+
+async fn serve(
+    endpoint: SocketAddr,
+    router: Router,
+    server_type: &'static str,
+) -> anyhow::Result<()> {
+    info!("Starting {server_type} server on {endpoint}");
+    let listener = TcpListener::bind(endpoint)
+        .await
+        .context("failed to bind to endpoint")?;
+    axum::serve(listener, router)
+        .await
+        .context("failed to serve")
+}
 
 async fn run(cli: Cli) -> anyhow::Result<()> {
     let config = Config::load(cli.config_file.as_deref())?;
@@ -19,14 +37,28 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         secret_key,
         token_expiration: Duration::from_secs(config.tokens.expiration_seconds),
     };
-    let router = routes::build_router(state);
-    info!("Starting server on {}", config.server.bind_endpoint);
-    let listener = TcpListener::bind(config.server.bind_endpoint)
-        .await
-        .context("failed to bind to endpoint")?;
-    axum::serve(listener, router)
-        .await
-        .context("failed to run application")?;
+    // Create a custom prometheus layer that ignores unknown paths and returns `/unknown` instead so
+    // crawlers/malicious actors can't create high cardinality metrics by hitting unknown routes.
+    let (prometheus_layer, metrics_handle) = PrometheusMetricLayerBuilder::new()
+        .with_prefix("app")
+        .with_endpoint_label_type(EndpointLabel::MatchedPathWithFallbackFn(|_| {
+            "/unknown".into()
+        }))
+        .with_metrics_from_fn(|| {
+            PrometheusBuilder::new()
+                .install_recorder()
+                .expect("failed to install metrics recorder")
+        })
+        .build_pair();
+    let router = routes::build_router(state).layer(prometheus_layer);
+    let metrics_router =
+        Router::new().route("/metrics", get(|| async move { metrics_handle.render() }));
+
+    let app = serve(config.server.bind_endpoint, router, "main");
+    let metrics = serve(config.metrics.bind_endpoint, metrics_router, "metrics");
+    let (app, metrics) = join!(app, metrics);
+    app.context("running main server")?;
+    metrics.context("running metrics server")?;
     Ok(())
 }
 

@@ -14,6 +14,9 @@ pub struct Config {
 
     /// Configuration for tokens.
     pub tokens: TokensConfig,
+
+    /// Configuration for metrics.
+    pub metrics: MetricsConfig,
 }
 
 impl Config {
@@ -47,13 +50,6 @@ pub enum PrivateKeyConfig {
     Path(PathBuf),
 }
 
-/// The configuration for minted tokens.
-#[derive(Deserialize)]
-pub struct TokensConfig {
-    /// The token expiration in seconds.
-    pub expiration_seconds: u64,
-}
-
 impl PrivateKeyConfig {
     /// Load a key using this configuration.
     pub fn load_key(&self) -> anyhow::Result<SecretKey> {
@@ -66,4 +62,18 @@ impl PrivateKeyConfig {
         let private_key = SecretKey::from_slice(&bytes).context("invalid private key")?;
         Ok(private_key)
     }
+}
+
+/// The configuration for minted tokens.
+#[derive(Deserialize)]
+pub struct TokensConfig {
+    /// The token expiration in seconds.
+    pub expiration_seconds: u64,
+}
+
+/// The configuration for metrics.
+#[derive(Deserialize)]
+pub struct MetricsConfig {
+    /// The address to bind to.
+    pub bind_endpoint: SocketAddr,
 }
