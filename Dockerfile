@@ -1,12 +1,14 @@
-FROM rust:1.85-slim-bullseye AS build
+FROM rust:1.85-alpine AS build
 
 WORKDIR /opt/nillion
+
+RUN apk add --no-cache musl-dev
 
 COPY . .
 
 RUN cargo build --release --locked
 
-FROM debian:bullseye-slim
+FROM scratch
 
 WORKDIR /opt/nillion
 
