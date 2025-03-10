@@ -37,16 +37,6 @@ jobs:
           VERSION=$(cargo metadata --format-version 1 | jq -r '.packages[] | select(.name == "authority-service") | .version')
           echo "PACKAGE_VERSION=${VERSION}" >> $GITHUB_ENV
 
-      - name: Create build info
-        run: |
-          cat << EOF > buildinfo.json
-          {
-            "time": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
-            "commit": "${{ github.sha }}",
-            "version": "${{ env.PACKAGE_VERSION }}"
-          }
-          EOF
-
       - name: Build and push images
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
