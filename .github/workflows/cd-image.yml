@@ -1,0 +1,67 @@
+name: CD - Publish Docker Image to ECR
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write # Required for OIDC
+  contents: read  # Required for checkout
+
+jobs:
+  publish-image-to-ecr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: "arn:aws:iam::054037142884:role/authority-service-github"
+          aws-region: "us-east-1"
+
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: login-ecr
+        with:
+          registry-type: public
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Parse version
+        run: |
+          VERSION=$(cargo metadata --format-version 1 | jq -r '.packages[] | select(.name == "authority-service") | .version')
+          echo "PACKAGE_VERSION=${VERSION}" >> $GITHUB_ENV
+
+      - name: Build and push images
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REGISTRY_ALIAS: k5d9x2g2
+          ECR_REPOSITORY: authority-service
+          IMAGE_TAG_SHA: ${{ github.sha }}
+        run: |
+          ECR_REGISTRY_URL="${ECR_REGISTRY}/${ECR_REGISTRY_ALIAS}/${ECR_REPOSITORY}"
+
+          # Always tag with commit sha
+          TAGS="-t ${ECR_REGISTRY_URL}:${IMAGE_TAG_SHA}"
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            # On manual trigger, use parsed version from Cargo.toml
+            IMAGE_TAG_VERSION=${{ env.PACKAGE_VERSION }}
+            TAGS="$TAGS -t ${ECR_REGISTRY_URL}:${IMAGE_TAG_VERSION}"
+          else
+            # If triggered by push to main, use latest tag
+            TAGS="$TAGS -t ${ECR_REGISTRY_URL}:latest"
+          fi
+
+          docker build \
+            --push \
+            -f Dockerfile \
+            $TAGS \
+            .
+
+          echo "Used tags: $TAGS" >> $GITHUB_STEP_SUMMARY
