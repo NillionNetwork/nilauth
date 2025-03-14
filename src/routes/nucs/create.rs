@@ -26,6 +26,10 @@ pub(crate) struct CreateNucRequest {
 #[serde(deny_unknown_fields)]
 struct SignablePayload {
     #[allow(dead_code)]
+    #[serde(
+        serialize_with = "hex::serde::serialize",
+        deserialize_with = "hex::serde::deserialize"
+    )]
     nonce: [u8; 16],
 }
 
