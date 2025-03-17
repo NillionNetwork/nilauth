@@ -75,7 +75,10 @@ pub(crate) async fn handler(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::AppState;
+    use crate::{
+        state::{AppState, Services},
+        tests::MockPaymentRetriever,
+    };
     use axum::extract::State;
     use nillion_nucs::{
         envelope::NucTokenEnvelope,
@@ -99,6 +102,9 @@ mod tests {
         let state = Arc::new(AppState {
             secret_key: server_key.clone(),
             token_expiration: Duration::from_secs(1),
+            services: Services {
+                tx: Box::new(MockPaymentRetriever::default()),
+            },
         });
 
         let client_key = SecretKey::random(&mut rand::thread_rng());
@@ -134,6 +140,9 @@ mod tests {
         let state = Arc::new(AppState {
             secret_key: server_key.clone(),
             token_expiration: Duration::from_secs(1),
+            services: Services {
+                tx: Box::new(MockPaymentRetriever::default()),
+            },
         });
 
         let client_key = SecretKey::random(&mut rand::thread_rng());

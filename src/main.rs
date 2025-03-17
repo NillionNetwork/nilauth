@@ -6,7 +6,8 @@ use axum_prometheus::{
 };
 use clap::Parser;
 use config::Config;
-use state::AppState;
+use nillion_chain_client::tx::DefaultPaymentTransactionRetriever;
+use state::{AppState, Services};
 use std::{net::SocketAddr, process::exit, time::Duration};
 use tokio::{join, net::TcpListener};
 use tracing::info;
@@ -15,6 +16,9 @@ mod args;
 mod config;
 mod routes;
 mod state;
+
+#[cfg(test)]
+mod tests;
 
 async fn serve(
     endpoint: SocketAddr,
@@ -33,9 +37,15 @@ async fn serve(
 async fn run(cli: Cli) -> anyhow::Result<()> {
     let config = Config::load(cli.config_file.as_deref())?;
     let secret_key = config.private_key.load_key()?;
+    let services = Services {
+        tx: Box::new(DefaultPaymentTransactionRetriever::new(
+            &config.payments.nilchain_url,
+        )?),
+    };
     let state = AppState {
         secret_key,
         token_expiration: Duration::from_secs(config.tokens.expiration_seconds),
+        services,
     };
     // Create a custom prometheus layer that ignores unknown paths and returns `/unknown` instead so
     // crawlers/malicious actors can't create high cardinality metrics by hitting unknown routes.
