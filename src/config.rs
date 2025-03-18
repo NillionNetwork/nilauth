@@ -1,7 +1,8 @@
 use anyhow::Context;
 use nillion_nucs::k256::SecretKey;
 use serde::Deserialize;
-use std::{fs, net::SocketAddr, path::PathBuf};
+use serde_with::serde_as;
+use std::{fs, net::SocketAddr, path::PathBuf, time::Duration};
 
 /// The configuration for the authority service.
 #[derive(Deserialize)]
@@ -20,6 +21,9 @@ pub struct Config {
 
     /// The payments configuration.
     pub payments: PaymentsConfig,
+
+    /// The postgres configuration.
+    pub postgres: PostgresConfig,
 }
 
 impl Config {
@@ -71,7 +75,8 @@ impl PrivateKeyConfig {
 #[derive(Deserialize)]
 pub struct TokensConfig {
     /// The token expiration in seconds.
-    pub expiration_seconds: u64,
+    #[serde(rename = "expiration_seconds")]
+    pub expiration: u64,
 }
 
 /// The configuration for metrics.
@@ -86,4 +91,29 @@ pub struct MetricsConfig {
 pub struct PaymentsConfig {
     /// The nilchain RPC URL to use.
     pub nilchain_url: String,
+
+    /// The subscription configuration.
+    pub subscriptions: SubscriptionConfig,
+}
+
+/// The subscription configuration.
+#[serde_as]
+#[derive(Deserialize)]
+pub struct SubscriptionConfig {
+    /// The minimum time needed for a subscription to be renewed.
+    #[serde_as(as = "serde_with::DurationSeconds<u64>")]
+    #[serde(rename = "renewal_threshold_seconds")]
+    pub renewal_threshold: Duration,
+
+    /// The length of a subscription.
+    #[serde_as(as = "serde_with::DurationSeconds<u64>")]
+    #[serde(rename = "length_seconds")]
+    pub length: Duration,
+}
+
+/// The postgres configuration.
+#[derive(Deserialize)]
+pub struct PostgresConfig {
+    /// The connection string to use.
+    pub url: String,
 }

@@ -6,8 +6,9 @@ use axum_prometheus::{
 };
 use clap::Parser;
 use config::Config;
+use db::{account::PostgresAccountDb, PostgresPool};
 use nillion_chain_client::tx::DefaultPaymentTransactionRetriever;
-use state::{AppState, Services};
+use state::{AppState, Databases, Services};
 use std::{net::SocketAddr, process::exit, time::Duration};
 use time::DefaultTimeService;
 use tokio::{join, net::TcpListener};
@@ -15,6 +16,7 @@ use tracing::info;
 
 mod args;
 mod config;
+mod db;
 mod routes;
 mod state;
 mod time;
@@ -45,10 +47,17 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         )?),
         time: Box::new(DefaultTimeService),
     };
+    let pool = PostgresPool::new(&config.postgres.url)
+        .await
+        .context("failed to create database connection")?;
+    let databases = Databases {
+        accounts: Box::new(PostgresAccountDb::new(pool, config.payments.subscriptions)),
+    };
     let state = AppState {
         secret_key,
-        token_expiration: Duration::from_secs(config.tokens.expiration_seconds),
+        token_expiration: Duration::from_secs(config.tokens.expiration),
         services,
+        databases,
     };
     // Create a custom prometheus layer that ignores unknown paths and returns `/unknown` instead so
     // crawlers/malicious actors can't create high cardinality metrics by hitting unknown routes.
@@ -81,7 +90,7 @@ async fn main() -> anyhow::Result<()> {
 
     let cli = Cli::parse();
     if let Err(e) = run(cli).await {
-        eprintln!("Failed to run server: {e}");
+        eprintln!("Failed to run server: {e:#}");
         exit(1);
     } else {
         Ok(())
