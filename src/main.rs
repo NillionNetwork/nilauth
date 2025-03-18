@@ -9,6 +9,7 @@ use config::Config;
 use nillion_chain_client::tx::DefaultPaymentTransactionRetriever;
 use state::{AppState, Services};
 use std::{net::SocketAddr, process::exit, time::Duration};
+use time::DefaultTimeService;
 use tokio::{join, net::TcpListener};
 use tracing::info;
 
@@ -16,6 +17,7 @@ mod args;
 mod config;
 mod routes;
 mod state;
+mod time;
 
 #[cfg(test)]
 mod tests;
@@ -41,6 +43,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
         tx: Box::new(DefaultPaymentTransactionRetriever::new(
             &config.payments.nilchain_url,
         )?),
+        time: Box::new(DefaultTimeService),
     };
     let state = AppState {
         secret_key,
