@@ -17,6 +17,9 @@ pub struct Config {
 
     /// Configuration for metrics.
     pub metrics: MetricsConfig,
+
+    /// The payments configuration.
+    pub payments: PaymentsConfig,
 }
 
 impl Config {
@@ -76,4 +79,11 @@ pub struct TokensConfig {
 pub struct MetricsConfig {
     /// The address to bind to.
     pub bind_endpoint: SocketAddr,
+}
+
+/// The payments configuration.
+#[derive(Deserialize)]
+pub struct PaymentsConfig {
+    /// The nilchain RPC URL to use.
+    pub nilchain_url: String,
 }

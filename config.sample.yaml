@@ -9,3 +9,6 @@ tokens:
 
 metrics:
   bind_endpoint: 127.0.0.1:39022
+
+payments:
+  nilchain_url: http://rpc.testnet-numia.nilchain-rpc-proxy.nilogy.xyz/
