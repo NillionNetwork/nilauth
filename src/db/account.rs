@@ -37,10 +37,14 @@ impl AccountDb for PostgresAccountDb {
         tx_hash: String,
         public_key: PublicKey,
     ) -> Result<(), CreditPaymentError> {
+        #[derive(FromRow)]
+        struct Row {
+            ends_at: DateTime<Utc>,
+        }
         let mut tx = self.pool.0.begin().await?;
         let public_key: String = public_key.to_sec1_bytes().encode_hex();
-        let subscription: Option<Subscription> =
-            query_as("SELECT * FROM subscriptions WHERE public_key = $1 FOR UPDATE")
+        let subscription: Option<Row> =
+            query_as("SELECT ends_at FROM subscriptions WHERE public_key = $1 FOR UPDATE")
                 .bind(&public_key)
                 .fetch_optional(tx.deref_mut())
                 .await?;
@@ -69,13 +73,6 @@ impl AccountDb for PostgresAccountDb {
         tx.commit().await?;
         Ok(())
     }
-}
-
-#[derive(FromRow)]
-struct Subscription {
-    #[allow(dead_code)]
-    public_key: String,
-    ends_at: DateTime<Utc>,
 }
 
 #[derive(Debug, thiserror::Error)]
