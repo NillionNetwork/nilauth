@@ -9,7 +9,7 @@ use std::{
 use testcontainers_modules::{
     postgres::Postgres,
     testcontainers::{
-        core::{ContainerPort, Mount},
+        core::{wait::LogWaitStrategy, ContainerPort, Mount, WaitFor},
         runners::AsyncRunner,
         ContainerAsync, GenericImage, ImageExt,
     },
@@ -48,6 +48,7 @@ impl Services {
         println!("{nilchain_config_path}");
         let nilchaind_container = GenericImage::new("ghcr.io/nillionnetwork/nilchaind", "v0.2.5")
             .with_entrypoint("/bin/sh")
+            .with_wait_for(WaitFor::Log(LogWaitStrategy::stdout(b"Starting RPC HTTP server")))
             .with_exposed_port(ContainerPort::Tcp(26648))
             .with_exposed_port(ContainerPort::Tcp(26649))
             .with_exposed_port(ContainerPort::Tcp(26650))
