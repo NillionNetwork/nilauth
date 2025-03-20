@@ -11,17 +11,19 @@ use tracing::{error, info};
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait AccountDb: Send + Sync + 'static {
+    async fn find_subscription_end(
+        &self,
+        public_key: &PublicKey,
+    ) -> sqlx::Result<Option<DateTime<Utc>>>;
+
     async fn credit_payment(
         &self,
         tx_hash: &str,
         public_key: PublicKey,
     ) -> Result<(), CreditPaymentError>;
 
-    async fn store_invalid_payment(
-        &self,
-        tx_hash: &str,
-        public_key: PublicKey,
-    ) -> Result<(), sqlx::Error>;
+    async fn store_invalid_payment(&self, tx_hash: &str, public_key: PublicKey)
+        -> sqlx::Result<()>;
 }
 
 pub struct PostgresAccountDb {
@@ -37,32 +39,38 @@ impl PostgresAccountDb {
 
 #[async_trait]
 impl AccountDb for PostgresAccountDb {
+    async fn find_subscription_end(
+        &self,
+        public_key: &PublicKey,
+    ) -> sqlx::Result<Option<DateTime<Utc>>> {
+        #[derive(FromRow)]
+        struct Row {
+            ends_at: DateTime<Utc>,
+        }
+        let public_key: String = public_key.to_sec1_bytes().encode_hex();
+        let row: Option<Row> =
+            query_as("SELECT ends_at FROM subscriptions WHERE public_key = $1 FOR UPDATE")
+                .bind(&public_key)
+                .fetch_optional(&self.pool.0)
+                .await?;
+        Ok(row.map(|r| r.ends_at))
+    }
+
     async fn credit_payment(
         &self,
         tx_hash: &str,
         public_key: PublicKey,
     ) -> Result<(), CreditPaymentError> {
-        #[derive(FromRow)]
-        struct Row {
-            ends_at: DateTime<Utc>,
-        }
         let mut tx = self.pool.0.begin().await?;
-        let public_key: String = public_key.to_sec1_bytes().encode_hex();
-        let subscription: Option<Row> =
-            query_as("SELECT ends_at FROM subscriptions WHERE public_key = $1 FOR UPDATE")
-                .bind(&public_key)
-                .fetch_optional(tx.deref_mut())
-                .await?;
-        if let Some(subscription) = &subscription {
-            if subscription.ends_at > Utc::now() + self.config.renewal_threshold {
-                info!(
-                    "Subscription can't be renewed because it ends at {}",
-                    subscription.ends_at
-                );
+        let subscription_ends_at = self.find_subscription_end(&public_key).await?;
+        if let Some(ends_at) = subscription_ends_at {
+            if ends_at > Utc::now() + self.config.renewal_threshold {
+                info!("Subscription can't be renewed because it ends at {ends_at}");
                 return Err(CreditPaymentError::CannotRenewYet);
             }
         }
 
+        let public_key: String = public_key.to_sec1_bytes().encode_hex();
         query("INSERT INTO payments (tx_hash, subscription_public_key, is_valid) VALUES ($1, $2, true)")
             .bind(tx_hash)
             .bind(&public_key)
@@ -71,8 +79,8 @@ impl AccountDb for PostgresAccountDb {
 
         // Try to extend it if it's not there yet
         let default_ends_at = Utc::now() + self.config.length;
-        let ends_at = subscription
-            .map(|s| s.ends_at + self.config.length)
+        let ends_at = subscription_ends_at
+            .map(|ends_at| ends_at + self.config.length)
             .unwrap_or(default_ends_at)
             .max(default_ends_at);
         query("INSERT INTO subscriptions (public_key, ends_at) VALUES ($1, $2) ON CONFLICT(public_key) DO UPDATE SET ends_at = $2")
@@ -87,7 +95,7 @@ impl AccountDb for PostgresAccountDb {
         &self,
         tx_hash: &str,
         public_key: PublicKey,
-    ) -> Result<(), sqlx::Error> {
+    ) -> sqlx::Result<()> {
         let public_key: String = public_key.to_sec1_bytes().encode_hex();
         query("INSERT INTO payments (tx_hash, subscription_public_key, is_valid) VALUES ($1, $2, false)")
             .bind(tx_hash)

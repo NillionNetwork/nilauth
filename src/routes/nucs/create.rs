@@ -5,7 +5,10 @@ use axum::{
     Json,
 };
 use chrono::{DateTime, Utc};
-use nillion_nucs::k256::ecdsa::{signature::Verifier, Signature};
+use nillion_nucs::k256::{
+    ecdsa::{signature::Verifier, Signature},
+    PublicKey,
+};
 use nillion_nucs::{builder::NucTokenBuilder, k256::ecdsa::VerifyingKey, token::Did};
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
@@ -76,8 +79,28 @@ pub(crate) async fn handler(
         .verify(&request.payload, &signature)
         .map_err(|_| HandlerError::SignatureVerification)?;
 
+    let expires_at = match state
+        .databases
+        .accounts
+        .find_subscription_end(&PublicKey::from(verifying_key))
+        .await
+    {
+        Ok(Some(timestamp)) => {
+            if timestamp <= state.services.time.current_time() {
+                return Err(HandlerError::SubscriptionExpired);
+            } else {
+                timestamp
+            }
+        }
+
+        Ok(None) => return Err(HandlerError::NotSubscribed),
+        Err(e) => {
+            error!("Failed to look up subscription: {e}");
+            return Err(HandlerError::Internal);
+        }
+    };
+
     let requestor_did = Did::new(request.public_key);
-    let expires_at = Utc::now() + state.token_expiration;
     info!("Minting token for {requestor_did}, expires at '{expires_at}'");
     let token = NucTokenBuilder::delegation([])
         .command(["nil"])
@@ -100,8 +123,10 @@ pub(crate) enum HandlerError {
     InvalidTargetPublicKey,
     InvalidSignature,
     MalformedPayload(String),
+    NotSubscribed,
     PayloadExpired,
     SignatureVerification,
+    SubscriptionExpired,
 }
 
 impl IntoResponse for HandlerError {
@@ -117,10 +142,15 @@ impl IntoResponse for HandlerError {
                 StatusCode::BAD_REQUEST,
                 format!("malformed payload: {reason}"),
             ),
+            Self::NotSubscribed => (StatusCode::PRECONDITION_FAILED, "not subscribed".into()),
             Self::PayloadExpired => (StatusCode::PRECONDITION_FAILED, "payload is expired".into()),
             Self::SignatureVerification => (
                 StatusCode::BAD_REQUEST,
                 "signature verification failed".into(),
+            ),
+            Self::SubscriptionExpired => (
+                StatusCode::PRECONDITION_FAILED,
+                "subscription expired".into(),
             ),
         };
         output.into_response()
@@ -130,8 +160,9 @@ impl IntoResponse for HandlerError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::AppStateBuilder;
+    use crate::tests::{AppStateBuilder, PublicKeyExt};
     use axum::extract::State;
+    use mockall::predicate::eq;
     use nillion_nucs::{
         envelope::NucTokenEnvelope,
         k256::{
@@ -140,7 +171,7 @@ mod tests {
         },
     };
     use rstest::rstest;
-    use std::{ops::Deref, time::Duration};
+    use std::time::Duration;
 
     enum InputModifier {
         Nonce,
@@ -172,12 +203,51 @@ mod tests {
             let request = Json(request);
             handler(State(state), request).await.map(|r| r.0)
         }
+
+        fn expect_subscription_ends(&mut self, public_key: PublicKey, time: Option<DateTime<Utc>>) {
+            self.builder
+                .account_db
+                .expect_find_subscription_end()
+                .with(eq(public_key))
+                .return_once(move |_| Ok(time));
+        }
     }
 
     #[tokio::test]
     async fn valid_request() {
-        let handler = Handler::default();
+        let mut handler = Handler::default();
         let client_key = SecretKey::random(&mut rand::thread_rng());
+        let now = Utc::now();
+        handler
+            .expect_subscription_ends(client_key.public_key(), Some(now + Duration::from_secs(60)));
+        handler.builder.set_current_time(now);
+
+        let payload = serde_json::to_string(&SignablePayload {
+            nonce: [0; 16],
+            expires_at: now + Duration::from_secs(1),
+            target_public_key: handler.builder.public_key().try_into().unwrap(),
+        })
+        .unwrap();
+        let signature: Signature = SigningKey::from(client_key.clone()).sign(payload.as_bytes());
+        let signature = signature.to_bytes().try_into().unwrap();
+        let request = CreateNucRequest {
+            public_key: client_key.public_key().to_bytes(),
+            signature,
+            payload: payload.as_bytes().to_vec(),
+        };
+        let response = handler.invoke(request).await.expect("failed to mint token");
+        NucTokenEnvelope::decode(&response.token)
+            .expect("invalid token")
+            .validate_signatures()
+            .expect("invalid signatures");
+    }
+
+    #[tokio::test]
+    async fn no_subscription() {
+        let mut handler = Handler::default();
+        let client_key = SecretKey::random(&mut rand::thread_rng());
+        handler.expect_subscription_ends(client_key.public_key(), None);
+
         let payload = serde_json::to_string(&SignablePayload {
             nonce: [0; 16],
             expires_at: Utc::now(),
@@ -187,20 +257,44 @@ mod tests {
         let signature: Signature = SigningKey::from(client_key.clone()).sign(payload.as_bytes());
         let signature = signature.to_bytes().try_into().unwrap();
         let request = CreateNucRequest {
-            public_key: client_key
-                .public_key()
-                .to_sec1_bytes()
-                .deref()
-                .try_into()
-                .unwrap(),
+            public_key: client_key.public_key().to_bytes(),
             signature,
             payload: payload.as_bytes().to_vec(),
         };
-        let response = handler.invoke(request).await.expect("failed to mint token");
-        NucTokenEnvelope::decode(&response.token)
-            .expect("invalid token")
-            .validate_signatures()
-            .expect("invalid signatures");
+        let err = handler
+            .invoke(request)
+            .await
+            .expect_err("request succeeded");
+        assert!(matches!(err, HandlerError::NotSubscribed));
+    }
+
+    #[tokio::test]
+    async fn expired_subscription() {
+        let mut handler = Handler::default();
+        let client_key = SecretKey::random(&mut rand::thread_rng());
+        let now = Utc::now();
+        handler
+            .expect_subscription_ends(client_key.public_key(), Some(now - Duration::from_secs(1)));
+        handler.builder.set_current_time(now);
+
+        let payload = serde_json::to_string(&SignablePayload {
+            nonce: [0; 16],
+            expires_at: now + Duration::from_secs(1),
+            target_public_key: handler.builder.public_key().try_into().unwrap(),
+        })
+        .unwrap();
+        let signature: Signature = SigningKey::from(client_key.clone()).sign(payload.as_bytes());
+        let signature = signature.to_bytes().try_into().unwrap();
+        let request = CreateNucRequest {
+            public_key: client_key.public_key().to_bytes(),
+            signature,
+            payload: payload.as_bytes().to_vec(),
+        };
+        let err = handler
+            .invoke(request)
+            .await
+            .expect_err("request succeeded");
+        assert!(matches!(err, HandlerError::SubscriptionExpired));
     }
 
     #[tokio::test]
@@ -220,12 +314,7 @@ mod tests {
         let signature: Signature = SigningKey::from(client_key.clone()).sign(payload.as_bytes());
         let signature = signature.to_bytes().try_into().unwrap();
         let mut request = CreateNucRequest {
-            public_key: client_key
-                .public_key()
-                .to_sec1_bytes()
-                .deref()
-                .try_into()
-                .unwrap(),
+            public_key: client_key.public_key().to_bytes(),
             signature,
             payload: payload.into(),
         };
@@ -258,12 +347,7 @@ mod tests {
         let signature: Signature = SigningKey::from(client_key.clone()).sign(payload.as_bytes());
         let signature = signature.to_bytes().try_into().unwrap();
         let request = CreateNucRequest {
-            public_key: client_key
-                .public_key()
-                .to_sec1_bytes()
-                .deref()
-                .try_into()
-                .unwrap(),
+            public_key: client_key.public_key().to_bytes(),
             signature,
             payload: payload.as_bytes().to_vec(),
         };
@@ -287,12 +371,7 @@ mod tests {
         let signature: Signature = SigningKey::from(client_key.clone()).sign(payload.as_bytes());
         let signature = signature.to_bytes().try_into().unwrap();
         let request = CreateNucRequest {
-            public_key: client_key
-                .public_key()
-                .to_sec1_bytes()
-                .deref()
-                .try_into()
-                .unwrap(),
+            public_key: client_key.public_key().to_bytes(),
             signature,
             payload: payload.as_bytes().to_vec(),
         };
