@@ -1863,7 +1863,7 @@ dependencies = [
 [[package]]
 name = "nilauth-client"
 version = "0.1.0"
-source = "git+https://github.com/NillionNetwork/nilvm?rev=571898d4ad1a0ea3507451be9d803563f35b7f31#571898d4ad1a0ea3507451be9d803563f35b7f31"
+source = "git+https://github.com/NillionNetwork/nilvm?rev=1a3625ee1fe3fec045b9814202ce7e5f88faee56#1a3625ee1fe3fec045b9814202ce7e5f88faee56"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1880,7 +1880,7 @@ dependencies = [
 [[package]]
 name = "nillion-chain-client"
 version = "0.1.0"
-source = "git+https://github.com/NillionNetwork/nilvm?rev=571898d4ad1a0ea3507451be9d803563f35b7f31#571898d4ad1a0ea3507451be9d803563f35b7f31"
+source = "git+https://github.com/NillionNetwork/nilvm?rev=1a3625ee1fe3fec045b9814202ce7e5f88faee56#1a3625ee1fe3fec045b9814202ce7e5f88faee56"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1901,7 +1901,7 @@ dependencies = [
 [[package]]
 name = "nillion-chain-transactions"
 version = "0.1.0"
-source = "git+https://github.com/NillionNetwork/nilvm?rev=571898d4ad1a0ea3507451be9d803563f35b7f31#571898d4ad1a0ea3507451be9d803563f35b7f31"
+source = "git+https://github.com/NillionNetwork/nilvm?rev=1a3625ee1fe3fec045b9814202ce7e5f88faee56#1a3625ee1fe3fec045b9814202ce7e5f88faee56"
 dependencies = [
  "prost",
 ]
@@ -1909,7 +1909,7 @@ dependencies = [
 [[package]]
 name = "nillion-nucs"
 version = "0.1.0"
-source = "git+https://github.com/NillionNetwork/nilvm?rev=571898d4ad1a0ea3507451be9d803563f35b7f31#571898d4ad1a0ea3507451be9d803563f35b7f31"
+source = "git+https://github.com/NillionNetwork/nilvm?rev=1a3625ee1fe3fec045b9814202ce7e5f88faee56#1a3625ee1fe3fec045b9814202ce7e5f88faee56"
 dependencies = [
  "base64 0.22.1",
  "chrono",

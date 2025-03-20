@@ -4,7 +4,7 @@ use crate::time::MockTimeService;
 use async_trait::async_trait;
 use mockall::mock;
 use nillion_chain_client::tx::{PaymentTransaction, PaymentTransactionRetriever, RetrieveError};
-use nillion_nucs::k256::SecretKey;
+use nillion_nucs::k256::{PublicKey, SecretKey};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -68,8 +68,18 @@ impl AppStateBuilder {
 pub(crate) fn random_public_key() -> [u8; 33] {
     SecretKey::random(&mut rand::thread_rng())
         .public_key()
-        .to_sec1_bytes()
-        .as_ref()
-        .try_into()
-        .expect("invalid array length")
+        .to_bytes()
+}
+
+pub(crate) trait PublicKeyExt {
+    fn to_bytes(self) -> [u8; 33];
+}
+
+impl PublicKeyExt for PublicKey {
+    fn to_bytes(self) -> [u8; 33] {
+        self.to_sec1_bytes()
+            .as_ref()
+            .try_into()
+            .expect("invalid public key")
+    }
 }
