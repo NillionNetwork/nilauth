@@ -1,3 +1,4 @@
+use super::PostgresPool;
 use crate::config::SubscriptionConfig;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -5,18 +6,22 @@ use hex::ToHex;
 use nillion_nucs::k256::PublicKey;
 use sqlx::{prelude::FromRow, query, query_as};
 use std::ops::DerefMut;
-use tracing::error;
-
-use super::PostgresPool;
+use tracing::{error, info};
 
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait AccountDb: Send + Sync + 'static {
     async fn credit_payment(
         &self,
-        tx_hash: String,
-        account: PublicKey,
+        tx_hash: &str,
+        public_key: PublicKey,
     ) -> Result<(), CreditPaymentError>;
+
+    async fn store_invalid_payment(
+        &self,
+        tx_hash: &str,
+        public_key: PublicKey,
+    ) -> Result<(), sqlx::Error>;
 }
 
 pub struct PostgresAccountDb {
@@ -34,7 +39,7 @@ impl PostgresAccountDb {
 impl AccountDb for PostgresAccountDb {
     async fn credit_payment(
         &self,
-        tx_hash: String,
+        tx_hash: &str,
         public_key: PublicKey,
     ) -> Result<(), CreditPaymentError> {
         #[derive(FromRow)]
@@ -50,11 +55,15 @@ impl AccountDb for PostgresAccountDb {
                 .await?;
         if let Some(subscription) = &subscription {
             if subscription.ends_at > Utc::now() + self.config.renewal_threshold {
+                info!(
+                    "Subscription can't be renewed because it ends at {}",
+                    subscription.ends_at
+                );
                 return Err(CreditPaymentError::CannotRenewYet);
             }
         }
 
-        query("INSERT INTO payments (tx_hash, subscription_public_key) VALUES ($1, $2)")
+        query("INSERT INTO payments (tx_hash, subscription_public_key, is_valid) VALUES ($1, $2, true)")
             .bind(tx_hash)
             .bind(&public_key)
             .execute(tx.deref_mut())
@@ -71,6 +80,20 @@ impl AccountDb for PostgresAccountDb {
             .bind(ends_at)
             .execute(tx.deref_mut()).await?;
         tx.commit().await?;
+        Ok(())
+    }
+
+    async fn store_invalid_payment(
+        &self,
+        tx_hash: &str,
+        public_key: PublicKey,
+    ) -> Result<(), sqlx::Error> {
+        let public_key: String = public_key.to_sec1_bytes().encode_hex();
+        query("INSERT INTO payments (tx_hash, subscription_public_key, is_valid) VALUES ($1, $2, false)")
+            .bind(tx_hash)
+            .bind(&public_key)
+            .execute(&self.pool.0)
+            .await?;
         Ok(())
     }
 }
