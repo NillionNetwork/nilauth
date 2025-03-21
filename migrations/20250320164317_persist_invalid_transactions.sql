@@ -1,9 +1,12 @@
 -- Add a column to payments to indicate if they're valid.
 
+DROP TABLE payments;
 
--- First add the column, by default new payments are invalid.
-ALTER TABLE payments
-  ADD COLUMN is_valid boolean NOT NULL DEFAULT false;
+CREATE TABLE payments (
+  tx_hash VARCHAR(256) PRIMARY KEY,
+  subscription_public_key VARCHAR(66) NOT NULL,
+  validated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  is_valid boolean NOT NULL DEFAULT false
+);
 
--- However, existing payments should be marked as valid.
-UPDATE payments SET is_valid = true;
+
