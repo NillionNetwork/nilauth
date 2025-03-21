@@ -76,7 +76,7 @@ pub(crate) async fn handler(
         .verify(&request.payload, &signature)
         .map_err(|_| HandlerError::SignatureVerification)?;
 
-    let requestor_did = Did::nil(request.public_key);
+    let requestor_did = Did::new(request.public_key);
     let expires_at = Utc::now() + state.token_expiration;
     info!("Minting token for {requestor_did}, expires at '{expires_at}'");
     let token = NucTokenBuilder::delegation([])
