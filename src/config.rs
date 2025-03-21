@@ -5,16 +5,13 @@ use serde_with::serde_as;
 use std::{fs, net::SocketAddr, path::PathBuf, time::Duration};
 
 /// The configuration for the authority service.
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct Config {
     /// The server configuration.
     pub server: ServerConfig,
 
     /// The private key
     pub private_key: PrivateKeyConfig,
-
-    /// Configuration for tokens.
-    pub tokens: TokensConfig,
 
     /// Configuration for metrics.
     pub metrics: MetricsConfig,
@@ -40,14 +37,14 @@ impl Config {
 }
 
 /// The server configuration.
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct ServerConfig {
     /// The endpoint to bind to.
     pub bind_endpoint: SocketAddr,
 }
 
 /// The secp256k1 private key to use.
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PrivateKeyConfig {
     /// The raw private key in hex.
@@ -71,23 +68,15 @@ impl PrivateKeyConfig {
     }
 }
 
-/// The configuration for minted tokens.
-#[derive(Deserialize)]
-pub struct TokensConfig {
-    /// The token expiration in seconds.
-    #[serde(rename = "expiration_seconds")]
-    pub expiration: u64,
-}
-
 /// The configuration for metrics.
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct MetricsConfig {
     /// The address to bind to.
     pub bind_endpoint: SocketAddr,
 }
 
 /// The payments configuration.
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct PaymentsConfig {
     /// The nilchain RPC URL to use.
     pub nilchain_url: String,
@@ -98,7 +87,7 @@ pub struct PaymentsConfig {
 
 /// The subscription configuration.
 #[serde_as]
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct SubscriptionConfig {
     /// The minimum time needed for a subscription to be renewed.
     #[serde_as(as = "serde_with::DurationSeconds<u64>")]
@@ -112,7 +101,7 @@ pub struct SubscriptionConfig {
 }
 
 /// The postgres configuration.
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct PostgresConfig {
     /// The connection string to use.
     pub url: String,

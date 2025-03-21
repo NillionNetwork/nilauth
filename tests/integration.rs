@@ -1,3 +1,6 @@
+use std::time::Duration;
+
+use chrono::Utc;
 use nilauth_client::client::{DefaultNilauthClient, NilauthClient};
 use nillion_nucs::{envelope::NucTokenEnvelope, k256::SecretKey, token::Did};
 use rstest::rstest;
@@ -7,7 +10,7 @@ mod setup;
 
 #[rstest]
 #[tokio::test]
-async fn payment(nilauth: NilAuth) {
+async fn pay_and_mint(nilauth: NilAuth) {
     let client = DefaultNilauthClient::new(nilauth.endpoint);
     let key = SecretKey::random(&mut rand::thread_rng());
     client
@@ -24,9 +27,12 @@ async fn payment(nilauth: NilAuth) {
     let token = NucTokenEnvelope::decode(&token)
         .expect("invalid token returned")
         .validate_signatures()
-        .expect("invalid signature");
+        .expect("invalid signature")
+        .into_parts()
+        .0
+        .into_token();
     assert_eq!(
-        token.token().token().audience,
+        token.audience,
         Did::new(
             key.public_key()
                 .to_sec1_bytes()
@@ -35,6 +41,22 @@ async fn payment(nilauth: NilAuth) {
                 .unwrap()
         )
     );
+
+    // Calculate what the expiration time could be and give it a bit of a buffer
+    let minimum_expiration_time =
+        Utc::now() + nilauth.config.payments.subscriptions.length - Duration::from_secs(10);
+    assert!(token.expires_at.expect("no expiration on token") > minimum_expiration_time);
+}
+
+#[rstest]
+#[tokio::test]
+async fn mint_without_paying(nilauth: NilAuth) {
+    let client = DefaultNilauthClient::new(nilauth.endpoint);
+    let key = SecretKey::random(&mut rand::thread_rng());
+    client
+        .request_token(&key)
+        .await
+        .expect_err("token minted successfully");
 }
 
 #[rstest]

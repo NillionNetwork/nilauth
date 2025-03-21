@@ -2,7 +2,7 @@ use crate::{db::account::AccountDb, time::TimeService};
 use axum::extract::State;
 use nillion_chain_client::tx::PaymentTransactionRetriever;
 use nillion_nucs::k256::SecretKey;
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 pub(crate) type SharedState = State<Arc<AppState>>;
 
@@ -25,9 +25,6 @@ pub struct Databases {
 pub struct AppState {
     /// The server's secret key.
     pub secret_key: SecretKey,
-
-    /// The expiration time for tokens.
-    pub token_expiration: Duration,
 
     /// The services the application uses.
     pub services: Services,

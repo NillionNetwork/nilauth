@@ -112,6 +112,7 @@ impl Services {
         let nilauth = NilAuth {
             endpoint: format!("http://127.0.0.1:{}", config.server.bind_endpoint.port()),
             nilchain_client: Arc::new(tokio::sync::Mutex::new(nilchain_client)),
+            config: config.clone(),
         };
         let handle = RUNTIME.spawn(async move {
             match run(config).await {
@@ -141,6 +142,7 @@ struct StartedContainer<T: Image> {
 pub struct NilAuth {
     pub endpoint: String,
     pub nilchain_client: Arc<tokio::sync::Mutex<NillionChainClient>>,
+    pub config: Config,
 }
 
 #[fixture]

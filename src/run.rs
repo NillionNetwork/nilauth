@@ -8,7 +8,7 @@ use axum_prometheus::{
     metrics_exporter_prometheus::PrometheusBuilder, EndpointLabel, PrometheusMetricLayerBuilder,
 };
 use nillion_chain_client::tx::DefaultPaymentTransactionRetriever;
-use std::{net::SocketAddr, time::Duration};
+use std::net::SocketAddr;
 use tokio::{join, net::TcpListener};
 use tracing::info;
 
@@ -28,7 +28,6 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     };
     let state = AppState {
         secret_key,
-        token_expiration: Duration::from_secs(config.tokens.expiration),
         services,
         databases,
     };
