@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use hex::ToHex;
 use nillion_nucs::k256::PublicKey;
-use sqlx::{prelude::FromRow, query, query_as};
+use sqlx::{prelude::FromRow, query, query_as, Executor, Postgres};
 use std::ops::DerefMut;
 use tracing::{error, info};
 
@@ -35,6 +35,30 @@ impl PostgresAccountDb {
     pub fn new(pool: PostgresPool, config: SubscriptionConfig) -> Self {
         Self { pool, config }
     }
+
+    async fn do_find_subscription_end<'a, E>(
+        &self,
+        public_key: &PublicKey,
+        executor: E,
+        for_update: bool,
+    ) -> sqlx::Result<Option<DateTime<Utc>>>
+    where
+        E: Executor<'a, Database = Postgres>,
+    {
+        #[derive(FromRow)]
+        struct Row {
+            ends_at: DateTime<Utc>,
+        }
+        let public_key: String = public_key.to_sec1_bytes().encode_hex();
+        let for_update_suffix = if for_update { " FOR UPDATE" } else { "" };
+        let row: Option<Row> = query_as(&format!(
+            "SELECT ends_at FROM subscriptions WHERE public_key = $1{for_update_suffix}"
+        ))
+        .bind(&public_key)
+        .fetch_optional(executor)
+        .await?;
+        Ok(row.map(|r| r.ends_at))
+    }
 }
 
 #[async_trait]
@@ -43,17 +67,8 @@ impl AccountDb for PostgresAccountDb {
         &self,
         public_key: &PublicKey,
     ) -> sqlx::Result<Option<DateTime<Utc>>> {
-        #[derive(FromRow)]
-        struct Row {
-            ends_at: DateTime<Utc>,
-        }
-        let public_key: String = public_key.to_sec1_bytes().encode_hex();
-        let row: Option<Row> =
-            query_as("SELECT ends_at FROM subscriptions WHERE public_key = $1 FOR UPDATE")
-                .bind(&public_key)
-                .fetch_optional(&self.pool.0)
-                .await?;
-        Ok(row.map(|r| r.ends_at))
+        self.do_find_subscription_end(public_key, &self.pool.0, false)
+            .await
     }
 
     async fn credit_payment(
@@ -62,7 +77,9 @@ impl AccountDb for PostgresAccountDb {
         public_key: PublicKey,
     ) -> Result<(), CreditPaymentError> {
         let mut tx = self.pool.0.begin().await?;
-        let subscription_ends_at = self.find_subscription_end(&public_key).await?;
+        let subscription_ends_at = self
+            .do_find_subscription_end(&public_key, tx.deref_mut(), true)
+            .await?;
         if let Some(ends_at) = subscription_ends_at {
             if ends_at > Utc::now() + self.config.renewal_threshold {
                 info!("Subscription can't be renewed because it ends at {ends_at}");
