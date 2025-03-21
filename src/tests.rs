@@ -1,4 +1,5 @@
-use crate::state::{AppState, Services};
+use crate::db::account::MockAccountDb;
+use crate::state::{AppState, Databases, Services};
 use crate::time::MockTimeService;
 use async_trait::async_trait;
 use mockall::mock;
@@ -21,6 +22,7 @@ pub(crate) struct AppStateBuilder {
     pub(crate) token_expiration: Duration,
     pub(crate) tx_retriever: MockPaymentRetriever,
     pub(crate) time_service: MockTimeService,
+    pub(crate) account_db: MockAccountDb,
 }
 
 impl Default for AppStateBuilder {
@@ -30,6 +32,7 @@ impl Default for AppStateBuilder {
             token_expiration: Duration::from_secs(1),
             tx_retriever: Default::default(),
             time_service: Default::default(),
+            account_db: Default::default(),
         }
     }
 }
@@ -41,6 +44,7 @@ impl AppStateBuilder {
             token_expiration,
             tx_retriever,
             time_service,
+            account_db,
         } = self;
 
         Arc::new(AppState {
@@ -50,10 +54,22 @@ impl AppStateBuilder {
                 tx: Box::new(tx_retriever),
                 time: Box::new(time_service),
             },
+            databases: Databases {
+                accounts: Box::new(account_db),
+            },
         })
     }
 
     pub(crate) fn public_key(&self) -> Vec<u8> {
         self.secret_key.public_key().to_sec1_bytes().to_vec()
     }
+}
+
+pub(crate) fn random_public_key() -> [u8; 33] {
+    SecretKey::random(&mut rand::thread_rng())
+        .public_key()
+        .to_sec1_bytes()
+        .as_ref()
+        .try_into()
+        .expect("invalid array length")
 }

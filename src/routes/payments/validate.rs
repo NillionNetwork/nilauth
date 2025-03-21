@@ -1,11 +1,14 @@
-use crate::state::SharedState;
+use crate::{db::account::CreditPaymentError, state::SharedState};
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
 use nillion_chain_client::tx::RetrieveError;
-use nillion_nucs::k256::sha2::{Digest, Sha256};
+use nillion_nucs::k256::{
+    sha2::{Digest, Sha256},
+    PublicKey,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
@@ -14,6 +17,9 @@ pub(crate) struct ValidatePaymentRequest {
 
     #[serde(deserialize_with = "hex::serde::deserialize")]
     payload: Vec<u8>,
+
+    #[serde(deserialize_with = "hex::serde::deserialize")]
+    public_key: [u8; 33],
 }
 
 #[derive(Serialize, Deserialize)]
@@ -35,8 +41,10 @@ struct Payload {
 
 pub(crate) async fn handler(
     state: SharedState,
-    request: Json<ValidatePaymentRequest>,
+    Json(request): Json<ValidatePaymentRequest>,
 ) -> Result<Json<()>, HandlerError> {
+    let public_key = PublicKey::from_sec1_bytes(&request.public_key)
+        .map_err(|_| HandlerError::InvalidPublicKey)?;
     let decoded_payload: Payload = serde_json::from_slice(&request.payload)
         .map_err(|e| HandlerError::MalformedPayload(e.to_string()))?;
     if decoded_payload.service_public_key != *state.secret_key.public_key().to_sec1_bytes() {
@@ -53,12 +61,21 @@ pub(crate) async fn handler(
     if tx.resource != payload_hash.as_slice() {
         return Err(HandlerError::HashMismatch);
     }
+
+    state
+        .databases
+        .accounts
+        .credit_payment(request.tx_hash, public_key)
+        .await
+        .map_err(HandlerError::CreditPayment)?;
     Ok(Json(()))
 }
 
 #[derive(Debug)]
 pub(crate) enum HandlerError {
+    CreditPayment(CreditPaymentError),
     HashMismatch,
+    InvalidPublicKey,
     MalformedPayload(String),
     UnknownPublicKey,
     RetrieveTransaction(RetrieveError),
@@ -67,9 +84,20 @@ pub(crate) enum HandlerError {
 impl IntoResponse for HandlerError {
     fn into_response(self) -> Response {
         let output = match self {
+            Self::CreditPayment(CreditPaymentError::Database) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into())
+            }
+            Self::CreditPayment(e) => (
+                StatusCode::PRECONDITION_FAILED,
+                format!("failed to credit payment: {e}"),
+            ),
             Self::HashMismatch => (
                 StatusCode::BAD_REQUEST,
                 "payload hash does not match transaction nonce".into(),
+            ),
+            Self::InvalidPublicKey => (
+                StatusCode::BAD_REQUEST,
+                "invalid public key in request".into(),
             ),
             Self::MalformedPayload(reason) => (
                 StatusCode::BAD_REQUEST,
@@ -99,10 +127,11 @@ impl IntoResponse for HandlerError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::AppStateBuilder;
+    use crate::tests::{random_public_key, AppStateBuilder};
     use axum::extract::State;
     use mockall::predicate::eq;
     use nillion_chain_client::{transactions::TokenAmount, tx::PaymentTransaction};
+    use nillion_nucs::k256::elliptic_curve::SecretKey;
 
     #[derive(Default)]
     struct Handler {
@@ -147,8 +176,20 @@ mod tests {
                 amount: TokenAmount::Unil(1),
             }),
         );
+
+        let public_key = SecretKey::random(&mut rand::thread_rng()).public_key();
         handler
-            .invoke(ValidatePaymentRequest { tx_hash, payload })
+            .builder
+            .account_db
+            .expect_credit_payment()
+            .with(eq(tx_hash.clone()), eq(public_key.clone()))
+            .return_once(move |_, _| Ok(()));
+        handler
+            .invoke(ValidatePaymentRequest {
+                tx_hash,
+                payload,
+                public_key: public_key.to_sec1_bytes().as_ref().try_into().unwrap(),
+            })
             .await
             .expect("request failed");
     }
@@ -172,7 +213,11 @@ mod tests {
             }),
         );
         let err = handler
-            .invoke(ValidatePaymentRequest { tx_hash, payload })
+            .invoke(ValidatePaymentRequest {
+                tx_hash,
+                payload,
+                public_key: random_public_key(),
+            })
             .await
             .expect_err("request succeeded");
         assert!(matches!(err, HandlerError::HashMismatch));
@@ -189,7 +234,11 @@ mod tests {
         let payload = serde_json::to_vec(&payload).expect("failed to serialize");
         handler.expect_tx_retrieve(tx_hash.clone(), Err(RetrieveError::NotCommitted));
         let err = handler
-            .invoke(ValidatePaymentRequest { tx_hash, payload })
+            .invoke(ValidatePaymentRequest {
+                tx_hash,
+                payload,
+                public_key: random_public_key(),
+            })
             .await
             .expect_err("request succeeded");
         assert!(matches!(err, HandlerError::RetrieveTransaction(_)));

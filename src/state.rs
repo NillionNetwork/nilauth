@@ -1,9 +1,8 @@
+use crate::{db::account::AccountDb, time::TimeService};
 use axum::extract::State;
 use nillion_chain_client::tx::PaymentTransactionRetriever;
 use nillion_nucs::k256::SecretKey;
 use std::{sync::Arc, time::Duration};
-
-use crate::time::TimeService;
 
 pub(crate) type SharedState = State<Arc<AppState>>;
 
@@ -16,6 +15,12 @@ pub struct Services {
     pub time: Box<dyn TimeService>,
 }
 
+/// Database interfaces used by the application.
+pub struct Databases {
+    /// The account database.
+    pub accounts: Box<dyn AccountDb>,
+}
+
 /// The state to be shared across all routes.
 pub struct AppState {
     /// The server's secret key.
@@ -26,4 +31,7 @@ pub struct AppState {
 
     /// The services the application uses.
     pub services: Services,
+
+    /// The database interfaces the application uses.
+    pub databases: Databases,
 }

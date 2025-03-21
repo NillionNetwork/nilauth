@@ -11,4 +11,11 @@ metrics:
   bind_endpoint: 127.0.0.1:39022
 
 payments:
-  nilchain_url: http://rpc.testnet-numia.nilchain-rpc-proxy.nilogy.xyz/
+  nilchain_url: http://127.0.0.1:48102
+
+  subscriptions:
+    renewal_threshold_seconds: 60 
+    length_seconds: 120
+
+postgres:
+  url: postgres://postgres:admin@127.0.0.1:5432/postgres
