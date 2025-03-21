@@ -10,7 +10,7 @@ use nillion_nucs::k256::{
     PublicKey,
 };
 use serde::{Deserialize, Serialize};
-use tracing::error;
+use tracing::{error, info};
 
 #[derive(Deserialize)]
 pub(crate) struct ValidatePaymentRequest {
@@ -61,14 +61,7 @@ pub(crate) async fn handler(
         .map_err(HandlerError::RetrieveTransaction)?;
     let payload_hash = Sha256::digest(&request.payload);
     if tx.resource != payload_hash.as_slice() {
-        if let Err(e) = state
-            .databases
-            .accounts
-            .store_invalid_payment(&tx_hash, public_key)
-            .await
-        {
-            error!("Failed to store invalid payment with tx hash {tx_hash}: {e}");
-        }
+        store_invalid_payment(&state, &tx_hash, public_key).await;
         return Err(HandlerError::HashMismatch);
     }
 
@@ -79,6 +72,23 @@ pub(crate) async fn handler(
         .await
         .map_err(HandlerError::CreditPayment)?;
     Ok(Json(()))
+}
+
+async fn store_invalid_payment(state: &SharedState, tx_hash: &str, public_key: PublicKey) {
+    let result = state
+        .databases
+        .accounts
+        .store_invalid_payment(tx_hash, public_key)
+        .await;
+    match result {
+        Ok(_) => (),
+        Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
+            info!("Invalid transaction {tx_hash} was already processed, ignoring")
+        }
+        Err(e) => {
+            error!("Failed to store invalid payment with tx hash {tx_hash}: {e}")
+        }
+    };
 }
 
 #[derive(Debug)]
