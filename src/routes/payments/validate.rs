@@ -1,8 +1,8 @@
-use crate::{db::account::CreditPaymentError, state::SharedState};
+use crate::routes::Json;
+use crate::{db::account::CreditPaymentError, routes::RequestHandlerError, state::SharedState};
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
 use nillion_chain_client::tx::RetrieveError;
 use nillion_nucs::k256::{
@@ -103,7 +103,7 @@ pub(crate) enum HandlerError {
 
 impl IntoResponse for HandlerError {
     fn into_response(self) -> Response {
-        let output = match self {
+        let (code, message) = match self {
             Self::CreditPayment(CreditPaymentError::Database) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into())
             }
@@ -140,7 +140,8 @@ impl IntoResponse for HandlerError {
                 }
             },
         };
-        output.into_response()
+        let response = RequestHandlerError { message };
+        (code, Json(response)).into_response()
     }
 }
 

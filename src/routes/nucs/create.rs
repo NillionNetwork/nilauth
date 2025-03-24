@@ -1,8 +1,8 @@
-use crate::state::SharedState;
+use crate::routes::Json;
+use crate::{routes::RequestHandlerError, state::SharedState};
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
 use chrono::{DateTime, Utc};
 use nillion_nucs::k256::{
@@ -131,7 +131,7 @@ pub(crate) enum HandlerError {
 
 impl IntoResponse for HandlerError {
     fn into_response(self) -> Response {
-        let output = match self {
+        let (code, message) = match self {
             Self::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()),
             Self::InvalidPublicKey => (StatusCode::BAD_REQUEST, "invalid public key".into()),
             Self::InvalidTargetPublicKey => {
@@ -153,7 +153,8 @@ impl IntoResponse for HandlerError {
                 "subscription expired".into(),
             ),
         };
-        output.into_response()
+        let response = RequestHandlerError { message };
+        (code, Json(response)).into_response()
     }
 }
 

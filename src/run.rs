@@ -7,6 +7,7 @@ use axum::{routing::get, Router};
 use axum_prometheus::{
     metrics_exporter_prometheus::PrometheusBuilder, EndpointLabel, PrometheusMetricLayerBuilder,
 };
+use chrono::Utc;
 use nillion_chain_client::tx::DefaultPaymentTransactionRetriever;
 use std::net::SocketAddr;
 use tokio::{join, net::TcpListener};
@@ -30,6 +31,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         secret_key,
         services,
         databases,
+        started_at: Utc::now(),
     };
     // Create a custom prometheus layer that ignores unknown paths and returns `/unknown` instead so
     // crawlers/malicious actors can't create high cardinality metrics by hitting unknown routes.

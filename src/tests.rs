@@ -53,6 +53,7 @@ impl AppStateBuilder {
             databases: Databases {
                 accounts: Box::new(account_db),
             },
+            started_at: Utc::now(),
         })
     }
 

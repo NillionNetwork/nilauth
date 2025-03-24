@@ -1,5 +1,6 @@
 use crate::{db::account::AccountDb, time::TimeService};
 use axum::extract::State;
+use chrono::{DateTime, Utc};
 use nillion_chain_client::tx::PaymentTransactionRetriever;
 use nillion_nucs::k256::SecretKey;
 use std::sync::Arc;
@@ -31,4 +32,7 @@ pub struct AppState {
 
     /// The database interfaces the application uses.
     pub databases: Databases,
+
+    /// The timestamp at which nilauth was started.
+    pub started_at: DateTime<Utc>,
 }
