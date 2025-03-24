@@ -13,6 +13,7 @@ payments:
   subscriptions:
     renewal_threshold_seconds: 60 
     length_seconds: 120
+    dollar_cost: 1
 
   token_price:
     api_key: abc 

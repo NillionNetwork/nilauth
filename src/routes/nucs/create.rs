@@ -67,7 +67,8 @@ pub(crate) async fn handler(
         .map_err(|e| HandlerError::MalformedPayload(e.to_string()))?;
     if payload.expires_at < state.services.time.current_time() {
         return Err(HandlerError::PayloadExpired);
-    } else if payload.target_public_key != *state.secret_key.public_key().to_sec1_bytes() {
+    } else if payload.target_public_key != *state.parameters.secret_key.public_key().to_sec1_bytes()
+    {
         return Err(HandlerError::InvalidTargetPublicKey);
     }
 
@@ -107,7 +108,7 @@ pub(crate) async fn handler(
         .subject(requestor_did.clone())
         .audience(requestor_did)
         .expires_at(expires_at)
-        .build(&state.secret_key.clone().into())
+        .build(&state.parameters.secret_key.clone().into())
         .map_err(|e| {
             error!("Failed to sign token: {e}");
             HandlerError::Internal

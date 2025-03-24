@@ -1,12 +1,13 @@
 use crate::db::account::MockAccountDb;
 use crate::services::prices::MockTokenPriceService;
-use crate::state::{AppState, Databases, Services};
+use crate::state::{AppState, Databases, Parameters, Services};
 use crate::time::MockTimeService;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use mockall::mock;
 use nillion_chain_client::tx::{PaymentTransaction, PaymentTransactionRetriever, RetrieveError};
 use nillion_nucs::k256::{PublicKey, SecretKey};
+use rust_decimal::Decimal;
 use std::sync::Arc;
 
 mock! {
@@ -24,6 +25,7 @@ pub(crate) struct AppStateBuilder {
     pub(crate) time_service: MockTimeService,
     pub(crate) token_price_service: MockTokenPriceService,
     pub(crate) account_db: MockAccountDb,
+    pub(crate) subscription_cost: Decimal,
 }
 
 impl Default for AppStateBuilder {
@@ -34,11 +36,20 @@ impl Default for AppStateBuilder {
             time_service: Default::default(),
             token_price_service: Default::default(),
             account_db: Default::default(),
+            subscription_cost: 1.into(),
         }
     }
 }
 
 impl AppStateBuilder {
+    pub(crate) fn with_expectations<F>(mut self, callback: F) -> Self
+    where
+        F: FnOnce(&mut Self),
+    {
+        callback(&mut self);
+        self
+    }
+
     pub(crate) fn build(self) -> Arc<AppState> {
         let Self {
             secret_key,
@@ -46,10 +57,17 @@ impl AppStateBuilder {
             time_service,
             token_price_service,
             account_db,
+            subscription_cost,
         } = self;
 
         Arc::new(AppState {
-            secret_key,
+            parameters: Parameters {
+                secret_key,
+                started_at: Utc::now(),
+                subscription_cost,
+                // 0.01
+                subscription_cost_slippage: Decimal::new(1, 2),
+            },
             services: Services {
                 tx: Box::new(tx_retriever),
                 time: Box::new(time_service),
@@ -58,7 +76,6 @@ impl AppStateBuilder {
             databases: Databases {
                 accounts: Box::new(account_db),
             },
-            started_at: Utc::now(),
         })
     }
 

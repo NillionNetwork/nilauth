@@ -1,5 +1,6 @@
 use anyhow::Context;
 use nillion_nucs::k256::SecretKey;
+use rust_decimal::Decimal;
 use serde::Deserialize;
 use serde_with::serde_as;
 use std::{fs, net::SocketAddr, path::PathBuf, time::Duration};
@@ -101,6 +102,13 @@ pub struct SubscriptionConfig {
     #[serde_as(as = "serde_with::DurationSeconds<u64>")]
     #[serde(rename = "length_seconds")]
     pub length: Duration,
+
+    /// The cost of the subscription, in dollars.
+    pub dollar_cost: Decimal,
+
+    /// The allowed slippage in the payment, in the range 0-1.
+    #[serde(default = "default_slippage")]
+    pub payment_slippage: Decimal,
 }
 
 /// The token price configuration.
@@ -141,4 +149,9 @@ fn default_coin_id() -> String {
 
 fn default_token_price_timeout() -> Duration {
     Duration::from_secs(30)
+}
+
+fn default_slippage() -> Decimal {
+    // 3%
+    Decimal::new(3, 2)
 }

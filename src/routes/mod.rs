@@ -21,7 +21,8 @@ pub fn build_router(state: AppState) -> Router {
             "/api/v1/",
             Router::new()
                 .route("/nucs/create", post(nucs::create::handler))
-                .route("/payments/validate", post(payments::validate::handler)),
+                .route("/payments/validate", post(payments::validate::handler))
+                .route("/payments/cost", get(payments::cost::handler)),
         )
         .with_state(state)
 }

@@ -1,7 +1,7 @@
 use crate::config::Config;
 use crate::db::{account::PostgresAccountDb, PostgresPool};
 use crate::services::prices::CoinGeckoTokenPriceService;
-use crate::state::{AppState, Databases, Services};
+use crate::state::{AppState, Databases, Parameters, Services};
 use crate::time::DefaultTimeService;
 use anyhow::Context;
 use axum::{routing::get, Router};
@@ -29,13 +29,20 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         .await
         .context("failed to create database connection")?;
     let databases = Databases {
-        accounts: Box::new(PostgresAccountDb::new(pool, config.payments.subscriptions)),
+        accounts: Box::new(PostgresAccountDb::new(
+            pool,
+            config.payments.subscriptions.clone(),
+        )),
     };
     let state = AppState {
-        secret_key,
+        parameters: Parameters {
+            secret_key,
+            started_at: Utc::now(),
+            subscription_cost: config.payments.subscriptions.dollar_cost,
+            subscription_cost_slippage: config.payments.subscriptions.payment_slippage,
+        },
         services,
         databases,
-        started_at: Utc::now(),
     };
     // Create a custom prometheus layer that ignores unknown paths and returns `/unknown` instead so
     // crawlers/malicious actors can't create high cardinality metrics by hitting unknown routes.
