@@ -1,4 +1,5 @@
 use crate::db::account::MockAccountDb;
+use crate::services::prices::MockTokenPriceService;
 use crate::state::{AppState, Databases, Services};
 use crate::time::MockTimeService;
 use async_trait::async_trait;
@@ -21,6 +22,7 @@ pub(crate) struct AppStateBuilder {
     pub(crate) secret_key: SecretKey,
     pub(crate) tx_retriever: MockPaymentRetriever,
     pub(crate) time_service: MockTimeService,
+    pub(crate) token_price_service: MockTokenPriceService,
     pub(crate) account_db: MockAccountDb,
 }
 
@@ -30,6 +32,7 @@ impl Default for AppStateBuilder {
             secret_key: SecretKey::random(&mut rand::thread_rng()),
             tx_retriever: Default::default(),
             time_service: Default::default(),
+            token_price_service: Default::default(),
             account_db: Default::default(),
         }
     }
@@ -41,6 +44,7 @@ impl AppStateBuilder {
             secret_key,
             tx_retriever,
             time_service,
+            token_price_service,
             account_db,
         } = self;
 
@@ -49,6 +53,7 @@ impl AppStateBuilder {
             services: Services {
                 tx: Box::new(tx_retriever),
                 time: Box::new(time_service),
+                prices: Box::new(token_price_service),
             },
             databases: Databases {
                 accounts: Box::new(account_db),

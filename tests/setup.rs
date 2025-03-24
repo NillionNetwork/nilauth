@@ -1,6 +1,13 @@
 use authority_service::{config::Config, run::run};
+use axum::http::StatusCode;
+use axum::routing::get;
+use axum::Router;
+use axum::{extract::Query, Json};
 use nillion_chain_client::{client::NillionChainClient, key::NillionChainPrivateKey};
 use rstest::fixture;
+use serde::Deserialize;
+use serde_json::json;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::{
     mem,
     path::Path,
@@ -16,6 +23,7 @@ use testcontainers_modules::{
         ContainerAsync, GenericImage, Image, ImageExt,
     },
 };
+use tokio::net::TcpListener;
 use tokio::{runtime::Runtime, task::JoinHandle, time::sleep};
 use tracing::{error, info};
 
@@ -24,11 +32,13 @@ static RUNTIME: LazyLock<Runtime> =
 static SERVICES: Mutex<Option<Services>> = Mutex::new(None);
 
 const MAX_NILAUTH_START_RETRIES: u8 = 100;
+const TOKEN_PRICE_API_PORT: u16 = 59123;
 
 struct Services {
     postgres_container: ContainerAsync<Postgres>,
     nilchaind_container: ContainerAsync<GenericImage>,
-    handle: JoinHandle<()>,
+    nilauth_handle: JoinHandle<()>,
+    token_price_handle: JoinHandle<()>,
     nilauth: NilAuth,
 }
 
@@ -44,17 +54,21 @@ impl Services {
             port: nilchaind_port,
         } = Self::start_nilchaind().await;
 
+        let token_price_handle = Self::start_token_price_api().await;
+
         // adjust parameters so we point to the containers
         let mut config = Config::load(Some("config.sample.yaml")).expect("invalid config");
         config.postgres.url =
             format!("postgres://postgres:postgres@127.0.0.1:{postgres_port}/postgres");
         config.payments.nilchain_url = format!("http://127.0.0.1:{nilchaind_port}");
+        config.payments.token_price.base_url = format!("http://127.0.0.1:{TOKEN_PRICE_API_PORT}");
 
-        let (nilauth, handle) = Self::start_nilauth(config).await;
+        let (nilauth, nilauth_handle) = Self::start_nilauth(config).await;
         Self {
             postgres_container,
             nilchaind_container,
-            handle,
+            nilauth_handle,
+            token_price_handle,
             nilauth,
         }
     }
@@ -131,6 +145,21 @@ impl Services {
         }
         panic!("nilauth did not start");
     }
+
+    async fn start_token_price_api() -> JoinHandle<()> {
+        let router = Router::new().route("/api/v3/simple/price", get(token_price_handler));
+        let listener = TcpListener::bind(SocketAddr::new(
+            Ipv4Addr::LOCALHOST.into(),
+            TOKEN_PRICE_API_PORT,
+        ))
+        .await
+        .expect("failed to bind token price api");
+        tokio::spawn(async move {
+            if let Err(e) = axum::serve(listener, router).await {
+                error!("Failed to run coin price API: {e}");
+            }
+        })
+    }
 }
 
 struct StartedContainer<T: Image> {
@@ -173,6 +202,26 @@ extern "C" fn cleanup_at_exit() {
     RUNTIME.block_on(async move {
         let _ = services.postgres_container.rm().await;
         let _ = services.nilchaind_container.rm().await;
-        services.handle.abort();
+        services.nilauth_handle.abort();
+        services.token_price_handle.abort();
     });
+}
+
+#[derive(Deserialize)]
+struct TokenPriceParameters {
+    ids: String,
+    vs_currencies: String,
+}
+
+async fn token_price_handler(
+    query: Query<TokenPriceParameters>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    if query.ids != "nillion" || query.vs_currencies != "usd" {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    Ok(Json(json!({
+        "nillion": {
+            "usd" : 1
+        }
+    })))
 }

@@ -14,5 +14,8 @@ payments:
     renewal_threshold_seconds: 60 
     length_seconds: 120
 
+  token_price:
+    api_key: abc 
+
 postgres:
   url: postgres://postgres:postgres@127.0.0.1:5432/postgres

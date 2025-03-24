@@ -1,4 +1,4 @@
-use crate::{db::account::AccountDb, time::TimeService};
+use crate::{db::account::AccountDb, services::prices::TokenPriceService, time::TimeService};
 use axum::extract::State;
 use chrono::{DateTime, Utc};
 use nillion_chain_client::tx::PaymentTransactionRetriever;
@@ -14,6 +14,9 @@ pub struct Services {
 
     /// A service that provides the current time.
     pub time: Box<dyn TimeService>,
+
+    /// A service that gets the current token price.
+    pub prices: Box<dyn TokenPriceService>,
 }
 
 /// Database interfaces used by the application.

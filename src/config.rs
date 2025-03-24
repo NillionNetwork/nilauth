@@ -83,6 +83,9 @@ pub struct PaymentsConfig {
 
     /// The subscription configuration.
     pub subscriptions: SubscriptionConfig,
+
+    /// The token price configuration.
+    pub token_price: TokenPriceConfig,
 }
 
 /// The subscription configuration.
@@ -100,9 +103,32 @@ pub struct SubscriptionConfig {
     pub length: Duration,
 }
 
+/// The token price configuration.
+#[derive(Clone, Deserialize)]
+pub struct TokenPriceConfig {
+    /// The base url to use.
+    #[serde(default = "default_token_price_base_url")]
+    pub base_url: String,
+
+    /// The API key for CoinGecko.
+    pub api_key: String,
+
+    /// The coin id to use when hitting the API.
+    #[serde(default = "default_coin_id")]
+    pub coin_id: String,
+}
+
 /// The postgres configuration.
 #[derive(Clone, Deserialize)]
 pub struct PostgresConfig {
     /// The connection string to use.
     pub url: String,
+}
+
+fn default_token_price_base_url() -> String {
+    "https://pro-api.coingecko.com/".into()
+}
+
+fn default_coin_id() -> String {
+    "nillion".into()
 }
