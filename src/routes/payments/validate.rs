@@ -64,6 +64,15 @@ pub(crate) async fn handler(
         store_invalid_payment(&state, &tx_hash, public_key).await;
         return Err(HandlerError::HashMismatch);
     }
+    let price = match state.services.prices.nil_token_price().await {
+        Ok(price) => price,
+        Err(e) => {
+            error!("Failed to get token price: {e}");
+            return Err(HandlerError::Internal);
+        }
+    };
+    // This will be removed in the next PR where we do something useful with this price.
+    info!("TODO: token price is {price}");
 
     state
         .databases
@@ -96,6 +105,7 @@ pub(crate) enum HandlerError {
     CreditPayment(CreditPaymentError),
     HashMismatch,
     InvalidPublicKey,
+    Internal,
     MalformedPayload(String),
     UnknownPublicKey,
     RetrieveTransaction(RetrieveError),
@@ -119,6 +129,7 @@ impl IntoResponse for HandlerError {
                 StatusCode::BAD_REQUEST,
                 "invalid public key in request".into(),
             ),
+            Self::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()),
             Self::MalformedPayload(reason) => (
                 StatusCode::BAD_REQUEST,
                 format!("malformed payload: {reason}"),
@@ -205,6 +216,11 @@ mod tests {
             .expect_credit_payment()
             .with(eq(tx_hash.clone()), eq(public_key.clone()))
             .return_once(move |_, _| Ok(()));
+        handler
+            .builder
+            .token_price_service
+            .expect_nil_token_price()
+            .return_once(|| Ok(1.into()));
         handler
             .invoke(ValidatePaymentRequest {
                 tx_hash,
