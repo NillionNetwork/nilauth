@@ -12,7 +12,7 @@ FROM scratch
 
 WORKDIR /opt/nillion
 
-COPY --from=build /opt/nillion/target/release/authority-service /opt/nillion
+COPY --from=build /opt/nillion/target/release/nilauth /opt/nillion
 
-ENTRYPOINT ["/opt/nillion/authority-service"]
+ENTRYPOINT ["/opt/nillion/nilauth"]
 

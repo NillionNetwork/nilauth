@@ -22,7 +22,7 @@ jobs:
 
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: "arn:aws:iam::054037142884:role/authority-service-github"
+          role-to-assume: "arn:aws:iam::054037142884:role/nilauth-github"
           aws-region: "us-east-1"
 
       - uses: aws-actions/amazon-ecr-login@v2
@@ -34,14 +34,14 @@ jobs:
 
       - name: Parse version
         run: |
-          VERSION=$(cargo metadata --format-version 1 | jq -r '.packages[] | select(.name == "authority-service") | .version')
+          VERSION=$(cargo metadata --format-version 1 | jq -r '.packages[] | select(.name == "nilauth") | .version')
           echo "PACKAGE_VERSION=${VERSION}" >> $GITHUB_ENV
 
       - name: Build and push images
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REGISTRY_ALIAS: k5d9x2g2
-          ECR_REPOSITORY: authority-service
+          ECR_REPOSITORY: nilauth
           IMAGE_TAG_SHA: ${{ github.sha }}
         run: |
           ECR_REGISTRY_URL="${ECR_REGISTRY}/${ECR_REGISTRY_ALIAS}/${ECR_REPOSITORY}"
