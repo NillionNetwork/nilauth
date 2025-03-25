@@ -104,6 +104,7 @@ pub struct SubscriptionConfig {
 }
 
 /// The token price configuration.
+#[serde_as]
 #[derive(Clone, Deserialize)]
 pub struct TokenPriceConfig {
     /// The base url to use.
@@ -116,6 +117,11 @@ pub struct TokenPriceConfig {
     /// The coin id to use when hitting the API.
     #[serde(default = "default_coin_id")]
     pub coin_id: String,
+
+    /// The timeout for all token price requests made.
+    #[serde_as(as = "serde_with::DurationSeconds<u64>")]
+    #[serde(default = "default_token_price_timeout")]
+    pub request_timeout: Duration,
 }
 
 /// The postgres configuration.
@@ -131,4 +137,8 @@ fn default_token_price_base_url() -> String {
 
 fn default_coin_id() -> String {
     "nillion".into()
+}
+
+fn default_token_price_timeout() -> Duration {
+    Duration::from_secs(30)
 }

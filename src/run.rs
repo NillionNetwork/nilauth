@@ -21,7 +21,9 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             &config.payments.nilchain_url,
         )?),
         time: Box::new(DefaultTimeService),
-        prices: Box::new(CoinGeckoTokenPriceService::new(config.payments.token_price)),
+        prices: Box::new(CoinGeckoTokenPriceService::new(
+            config.payments.token_price,
+        )?),
     };
     let pool = PostgresPool::new(&config.postgres.url)
         .await

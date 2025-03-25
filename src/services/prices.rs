@@ -25,14 +25,18 @@ pub(crate) struct CoinGeckoTokenPriceService {
 }
 
 impl CoinGeckoTokenPriceService {
-    pub(crate) fn new(config: TokenPriceConfig) -> Self {
+    pub(crate) fn new(config: TokenPriceConfig) -> anyhow::Result<Self> {
         let TokenPriceConfig {
             base_url,
             api_key,
             coin_id,
+            request_timeout,
         } = config;
-        Self {
-            client: reqwest::Client::new(),
+        let client = reqwest::Client::builder()
+            .timeout(request_timeout)
+            .build()?;
+        Ok(Self {
+            client,
             api_key,
             coin_id,
             simple_price_url: format!("{base_url}/api/v3/simple/price"),
@@ -40,7 +44,7 @@ impl CoinGeckoTokenPriceService {
                 timestamp: Instant::now() - PRICE_CACHE_DURATION - Duration::from_secs(1),
                 price: Decimal::from(0),
             }),
-        }
+        })
     }
 }
 
@@ -78,7 +82,7 @@ impl TokenPriceService for CoinGeckoTokenPriceService {
         let price = response
             .get(&self.coin_id)
             .map(|response| response.usd)
-            .ok_or_else(|| anyhow!("CoinGecko response dot not contain the requeste coin"))?;
+            .ok_or_else(|| anyhow!("CoinGecko response dot not contain the requested coin"))?;
         // Just in case...
         if price <= Decimal::from(0) {
             bail!("token price is <= 0: {price}")
