@@ -10,7 +10,7 @@ pub(crate) static UNIL_IN_NIL: u64 = 1_000_000;
 
 #[derive(Serialize)]
 pub(crate) struct GetCostResponse {
-    // The cost in unils.
+    /// The cost in unils.
     pub(crate) cost_unils: u64,
 }
 

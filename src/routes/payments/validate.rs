@@ -79,6 +79,7 @@ pub(crate) async fn handler(
                 warn!("Expected payment for {minimum_payment} but got {unil_paid} unils");
                 return Err(HandlerError::InsufficientPayment);
             }
+            info!("Processed payment for {unil_paid}unil, minimum was {minimum_payment}");
         }
         Err(_) => {
             error!("Can't process transaction because we can't fetch subscription cost");
