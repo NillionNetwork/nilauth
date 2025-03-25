@@ -2,7 +2,7 @@ FROM rust:1.85-alpine AS build
 
 WORKDIR /opt/nillion
 
-RUN apk add --no-cache musl-dev
+RUN apk add --no-cache musl-dev git
 
 COPY . .
 
