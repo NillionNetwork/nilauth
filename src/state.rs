@@ -3,6 +3,7 @@ use axum::extract::State;
 use chrono::{DateTime, Utc};
 use nillion_chain_client::tx::PaymentTransactionRetriever;
 use nillion_nucs::k256::SecretKey;
+use rust_decimal::Decimal;
 use std::sync::Arc;
 
 pub(crate) type SharedState = State<Arc<AppState>>;
@@ -27,15 +28,26 @@ pub struct Databases {
 
 /// The state to be shared across all routes.
 pub struct AppState {
-    /// The server's secret key.
-    pub secret_key: SecretKey,
-
     /// The services the application uses.
     pub services: Services,
 
     /// The database interfaces the application uses.
     pub databases: Databases,
 
+    /// The parameters for this service.
+    pub parameters: Parameters,
+}
+
+pub struct Parameters {
+    /// The server's secret key.
+    pub secret_key: SecretKey,
+
     /// The timestamp at which nilauth was started.
     pub started_at: DateTime<Utc>,
+
+    /// Subscription cost, in dollars.
+    pub subscription_cost: Decimal,
+
+    /// The allowed slippage in the range 0-1.
+    pub subscription_cost_slippage: Decimal,
 }

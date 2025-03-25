@@ -1,3 +1,4 @@
+use crate::routes::payments::cost::GetCostResponse;
 use crate::routes::Json;
 use crate::{db::account::CreditPaymentError, routes::RequestHandlerError, state::SharedState};
 use axum::{
@@ -9,8 +10,9 @@ use nillion_nucs::k256::{
     sha2::{Digest, Sha256},
     PublicKey,
 };
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 #[derive(Deserialize)]
 pub(crate) struct ValidatePaymentRequest {
@@ -48,10 +50,13 @@ pub(crate) async fn handler(
         .map_err(|_| HandlerError::InvalidPublicKey)?;
     let decoded_payload: Payload = serde_json::from_slice(&request.payload)
         .map_err(|e| HandlerError::MalformedPayload(e.to_string()))?;
-    if decoded_payload.service_public_key != *state.secret_key.public_key().to_sec1_bytes() {
+    if decoded_payload.service_public_key
+        != *state.parameters.secret_key.public_key().to_sec1_bytes()
+    {
         return Err(HandlerError::UnknownPublicKey);
     }
 
+    // Make sure the client has proven they made the transaction
     let tx_hash = request.tx_hash;
     let tx = state
         .services
@@ -64,15 +69,23 @@ pub(crate) async fn handler(
         store_invalid_payment(&state, &tx_hash, public_key).await;
         return Err(HandlerError::HashMismatch);
     }
-    let price = match state.services.prices.nil_token_price().await {
-        Ok(price) => price,
-        Err(e) => {
-            error!("Failed to get token price: {e}");
+    // Make sure they paid enough
+    match crate::routes::payments::cost::handler(state.clone()).await {
+        Ok(Json(GetCostResponse { cost_unils })) => {
+            let unil_paid = Decimal::from(tx.amount.to_unil());
+            let minimum_payment = Decimal::from(cost_unils)
+                * (Decimal::from(1) - state.parameters.subscription_cost_slippage);
+            if unil_paid < minimum_payment {
+                warn!("Expected payment for {minimum_payment} but got {unil_paid} unils");
+                return Err(HandlerError::InsufficientPayment);
+            }
+            info!("Processed payment for {unil_paid}unil, minimum was {minimum_payment}");
+        }
+        Err(_) => {
+            error!("Can't process transaction because we can't fetch subscription cost");
             return Err(HandlerError::Internal);
         }
     };
-    // This will be removed in the next PR where we do something useful with this price.
-    info!("TODO: token price is {price}");
 
     state
         .databases
@@ -105,6 +118,7 @@ pub(crate) enum HandlerError {
     CreditPayment(CreditPaymentError),
     HashMismatch,
     InvalidPublicKey,
+    InsufficientPayment,
     Internal,
     MalformedPayload(String),
     UnknownPublicKey,
@@ -128,6 +142,10 @@ impl IntoResponse for HandlerError {
             Self::InvalidPublicKey => (
                 StatusCode::BAD_REQUEST,
                 "invalid public key in request".into(),
+            ),
+            Self::InsufficientPayment => (
+                StatusCode::PRECONDITION_FAILED,
+                "insufficient payment".into(),
             ),
             Self::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()),
             Self::MalformedPayload(reason) => (
@@ -205,7 +223,8 @@ mod tests {
             Ok(PaymentTransaction {
                 resource: payload_hash.to_vec(),
                 from_address: "".into(),
-                amount: TokenAmount::Unil(1),
+                // Pay 99% of the cost
+                amount: TokenAmount::Unil(990_000),
             }),
         );
 
@@ -229,6 +248,42 @@ mod tests {
             })
             .await
             .expect("request failed");
+    }
+
+    #[tokio::test]
+    async fn validate_underpayment() {
+        let tx_hash = "0xdeadbeef".to_string();
+        let mut handler = Handler::default();
+        let payload = Payload {
+            nonce: rand::random(),
+            service_public_key: handler.builder.public_key(),
+        };
+        let payload = serde_json::to_vec(&payload).expect("failed to serialize");
+        let payload_hash = Sha256::digest(&payload);
+        handler.expect_tx_retrieve(
+            tx_hash.clone(),
+            Ok(PaymentTransaction {
+                resource: payload_hash.to_vec(),
+                from_address: "".into(),
+                // Pay one unil less than 97% of the cost
+                amount: TokenAmount::Unil(989_999),
+            }),
+        );
+
+        let public_key = SecretKey::random(&mut rand::thread_rng()).public_key();
+        handler
+            .builder
+            .token_price_service
+            .expect_nil_token_price()
+            .return_once(|| Ok(1.into()));
+        handler
+            .invoke(ValidatePaymentRequest {
+                tx_hash,
+                payload,
+                public_key: public_key.to_bytes(),
+            })
+            .await
+            .expect_err("request succeeded");
     }
 
     #[tokio::test]
