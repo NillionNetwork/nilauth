@@ -1,4 +1,4 @@
-# authority-service
+# nilAuth
 The authority service that mints root NUC tokens
 
 # docker compose
