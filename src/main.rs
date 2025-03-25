@@ -1,7 +1,7 @@
-use authority_service::args::Cli;
-use authority_service::config::Config;
-use authority_service::run::run;
 use clap::Parser;
+use nilauth::args::Cli;
+use nilauth::config::Config;
+use nilauth::run::run;
 use std::process::exit;
 
 #[tokio::main]

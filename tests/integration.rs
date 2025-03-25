@@ -11,7 +11,7 @@ mod setup;
 #[rstest]
 #[tokio::test]
 async fn pay_and_mint(nilauth: NilAuth) {
-    let client = DefaultNilauthClient::new(nilauth.endpoint);
+    let client = DefaultNilauthClient::new(nilauth.endpoint).expect("failed to build client");
     let key = SecretKey::random(&mut rand::thread_rng());
     client
         .pay_subscription(
@@ -51,7 +51,7 @@ async fn pay_and_mint(nilauth: NilAuth) {
 #[rstest]
 #[tokio::test]
 async fn mint_without_paying(nilauth: NilAuth) {
-    let client = DefaultNilauthClient::new(nilauth.endpoint);
+    let client = DefaultNilauthClient::new(nilauth.endpoint).expect("failed to build client");
     let key = SecretKey::random(&mut rand::thread_rng());
     client
         .request_token(&key)
@@ -62,7 +62,7 @@ async fn mint_without_paying(nilauth: NilAuth) {
 #[rstest]
 #[tokio::test]
 async fn pay_too_soon(nilauth: NilAuth) {
-    let client = DefaultNilauthClient::new(nilauth.endpoint);
+    let client = DefaultNilauthClient::new(nilauth.endpoint).expect("failed to build client");
     let key = SecretKey::random(&mut rand::thread_rng());
     client
         .pay_subscription(
