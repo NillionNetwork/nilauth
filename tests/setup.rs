@@ -1,4 +1,4 @@
-use authority_service::{config::Config, run::run};
+use ::nilauth::{config::Config, run::run};
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::Router;
