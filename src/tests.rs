@@ -1,4 +1,5 @@
 use crate::db::account::MockAccountDb;
+use crate::db::revocations::MockRevocationDb;
 use crate::services::prices::MockTokenPriceService;
 use crate::state::{AppState, Databases, Parameters, Services};
 use crate::time::MockTimeService;
@@ -25,6 +26,7 @@ pub(crate) struct AppStateBuilder {
     pub(crate) time_service: MockTimeService,
     pub(crate) token_price_service: MockTokenPriceService,
     pub(crate) account_db: MockAccountDb,
+    pub(crate) revocation_db: MockRevocationDb,
     pub(crate) subscription_cost: Decimal,
 }
 
@@ -36,6 +38,7 @@ impl Default for AppStateBuilder {
             time_service: Default::default(),
             token_price_service: Default::default(),
             account_db: Default::default(),
+            revocation_db: Default::default(),
             subscription_cost: 1.into(),
         }
     }
@@ -57,6 +60,7 @@ impl AppStateBuilder {
             time_service,
             token_price_service,
             account_db,
+            revocation_db,
             subscription_cost,
         } = self;
 
@@ -75,6 +79,7 @@ impl AppStateBuilder {
             },
             databases: Databases {
                 accounts: Box::new(account_db),
+                revocations: Box::new(revocation_db),
             },
         })
     }

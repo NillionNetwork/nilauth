@@ -1924,6 +1924,7 @@ dependencies = [
  "clap",
  "config",
  "hex",
+ "itertools",
  "libc",
  "mockall",
  "nilauth-client",
@@ -1947,7 +1948,7 @@ dependencies = [
 [[package]]
 name = "nilauth-client"
 version = "0.1.0"
-source = "git+https://github.com/NillionNetwork/nilvm?rev=3b307cfa661baead3b64e6f7cb0f9a3d93cc38dc#3b307cfa661baead3b64e6f7cb0f9a3d93cc38dc"
+source = "git+https://github.com/NillionNetwork/nilvm?rev=e30037128e8142e2d7d8f7cbd6e0914bf9fb250b#e30037128e8142e2d7d8f7cbd6e0914bf9fb250b"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1964,7 +1965,7 @@ dependencies = [
 [[package]]
 name = "nillion-chain-client"
 version = "0.1.0"
-source = "git+https://github.com/NillionNetwork/nilvm?rev=3b307cfa661baead3b64e6f7cb0f9a3d93cc38dc#3b307cfa661baead3b64e6f7cb0f9a3d93cc38dc"
+source = "git+https://github.com/NillionNetwork/nilvm?rev=e30037128e8142e2d7d8f7cbd6e0914bf9fb250b#e30037128e8142e2d7d8f7cbd6e0914bf9fb250b"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1985,7 +1986,7 @@ dependencies = [
 [[package]]
 name = "nillion-chain-transactions"
 version = "0.1.0"
-source = "git+https://github.com/NillionNetwork/nilvm?rev=3b307cfa661baead3b64e6f7cb0f9a3d93cc38dc#3b307cfa661baead3b64e6f7cb0f9a3d93cc38dc"
+source = "git+https://github.com/NillionNetwork/nilvm?rev=e30037128e8142e2d7d8f7cbd6e0914bf9fb250b#e30037128e8142e2d7d8f7cbd6e0914bf9fb250b"
 dependencies = [
  "prost",
 ]
@@ -1993,7 +1994,7 @@ dependencies = [
 [[package]]
 name = "nillion-nucs"
 version = "0.1.0"
-source = "git+https://github.com/NillionNetwork/nilvm?rev=3b307cfa661baead3b64e6f7cb0f9a3d93cc38dc#3b307cfa661baead3b64e6f7cb0f9a3d93cc38dc"
+source = "git+https://github.com/NillionNetwork/nilvm?rev=e30037128e8142e2d7d8f7cbd6e0914bf9fb250b#e30037128e8142e2d7d8f7cbd6e0914bf9fb250b"
 dependencies = [
  "base64 0.22.1",
  "chrono",

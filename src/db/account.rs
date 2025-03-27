@@ -10,7 +10,7 @@ use tracing::{error, info};
 
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
-pub trait AccountDb: Send + Sync + 'static {
+pub(crate) trait AccountDb: Send + Sync + 'static {
     async fn find_subscription_end(
         &self,
         public_key: &PublicKey,
@@ -26,13 +26,13 @@ pub trait AccountDb: Send + Sync + 'static {
         -> sqlx::Result<()>;
 }
 
-pub struct PostgresAccountDb {
+pub(crate) struct PostgresAccountDb {
     pool: PostgresPool,
     config: SubscriptionConfig,
 }
 
 impl PostgresAccountDb {
-    pub fn new(pool: PostgresPool, config: SubscriptionConfig) -> Self {
+    pub(crate) fn new(pool: PostgresPool, config: SubscriptionConfig) -> Self {
         Self { pool, config }
     }
 
@@ -124,7 +124,7 @@ impl AccountDb for PostgresAccountDb {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum CreditPaymentError {
+pub(crate) enum CreditPaymentError {
     #[error("duplicate key")]
     DuplicateKey,
 

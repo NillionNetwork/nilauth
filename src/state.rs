@@ -1,4 +1,8 @@
-use crate::{db::account::AccountDb, services::prices::TokenPriceService, time::TimeService};
+use crate::{
+    db::{account::AccountDb, revocations::RevocationDb},
+    services::prices::TokenPriceService,
+    time::TimeService,
+};
 use axum::extract::State;
 use chrono::{DateTime, Utc};
 use nillion_chain_client::tx::PaymentTransactionRetriever;
@@ -24,6 +28,9 @@ pub struct Services {
 pub struct Databases {
     /// The account database.
     pub accounts: Box<dyn AccountDb>,
+
+    /// The revocations database.
+    pub revocations: Box<dyn RevocationDb>,
 }
 
 /// The state to be shared across all routes.
