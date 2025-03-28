@@ -30,7 +30,7 @@ pub struct Databases {
     pub accounts: Box<dyn AccountDb>,
 
     /// The revocations database.
-    pub revocations: Box<dyn RevocationDb>,
+    pub revocations: Arc<dyn RevocationDb>,
 }
 
 /// The state to be shared across all routes.
