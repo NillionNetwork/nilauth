@@ -1926,6 +1926,7 @@ dependencies = [
  "hex",
  "itertools",
  "libc",
+ "metrics",
  "mockall",
  "nilauth-client",
  "nillion-chain-client",

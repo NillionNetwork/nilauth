@@ -13,6 +13,7 @@ clap = { version = "4.5", features = ["derive", "env"] }
 config = { version = "0.15", default-features = false, features = ["yaml"] }
 hex = { version = "0.4", features = ["serde"] }
 itertools = "0.14"
+metrics = "0.24"
 nilauth-client = { git = "https://github.com/NillionNetwork/nilvm", rev = "e30037128e8142e2d7d8f7cbd6e0914bf9fb250b" }
 nillion-nucs = { git = "https://github.com/NillionNetwork/nilvm", rev = "e30037128e8142e2d7d8f7cbd6e0914bf9fb250b" }
 nillion-chain-client = { git = "https://github.com/NillionNetwork/nilvm", rev = "e30037128e8142e2d7d8f7cbd6e0914bf9fb250b" }

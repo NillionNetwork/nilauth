@@ -5,6 +5,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use metrics::counter;
 use nillion_chain_client::tx::RetrieveError;
 use nillion_nucs::k256::{
     sha2::{Digest, Sha256},
@@ -67,6 +68,7 @@ pub(crate) async fn handler(
     let payload_hash = Sha256::digest(&request.payload);
     if tx.resource != payload_hash.as_slice() {
         store_invalid_payment(&state, &tx_hash, public_key).await;
+        counter!("invalid_payments_total", "reason" => "hash").increment(1);
         return Err(HandlerError::HashMismatch);
     }
     // Make sure they paid enough
@@ -77,8 +79,10 @@ pub(crate) async fn handler(
                 * (Decimal::from(1) - state.parameters.subscription_cost_slippage);
             if unil_paid < minimum_payment {
                 warn!("Expected payment for {minimum_payment} but got {unil_paid} unils");
+                counter!("invalid_payments_total", "reason" => "underpaid").increment(1);
                 return Err(HandlerError::InsufficientPayment);
             }
+            counter!("payments_valid_total").increment(1);
             info!("Processed payment for {unil_paid}unil, minimum was {minimum_payment}");
         }
         Err(_) => {

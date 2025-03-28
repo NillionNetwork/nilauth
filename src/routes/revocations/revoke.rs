@@ -6,6 +6,7 @@ use crate::{
 };
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use metrics::counter;
 use nillion_nucs::{
     envelope::{InvalidSignature, NucEnvelopeParseError, NucTokenEnvelope},
     token::{Command, TokenBody},
@@ -60,6 +61,7 @@ pub(crate) async fn handler(state: SharedState, auth: NucAuth) -> Result<Json<()
     match result {
         Ok(_) => {
             info!("Revoked token {hash}, expires at {expires_at}");
+            counter!("revoked_tokens_total").increment(1);
             Ok(Json(()))
         }
         Err(StoreRevocationError::AlreadyRevoked) => {

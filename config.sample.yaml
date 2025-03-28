@@ -5,7 +5,7 @@ private_key:
   hex: 7c5c8d3114ac2410249ca2baae7dec86ac2950a389ac44a5fdca8941b92b6c86
 
 metrics:
-  bind_endpoint: 127.0.0.1:39022
+  bind_endpoint: 127.0.0.1:30922
 
 payments:
   nilchain_url: http://127.0.0.1:26648
