@@ -11,6 +11,7 @@ use serde::Serialize;
 use std::sync::Arc;
 
 pub(crate) mod about;
+pub(crate) mod health;
 pub(crate) mod nucs;
 pub(crate) mod payments;
 pub(crate) mod revocations;
@@ -30,6 +31,7 @@ pub fn build_router(state: AppState) -> Router {
     let validator_state = TokenValidatorState::new(validator, nilauth_did);
     Router::new()
         .route("/about", get(about::handler))
+        .route("/health", get(health::handler))
         .nest(
             "/api/v1/",
             Router::new()
