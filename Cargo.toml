@@ -12,9 +12,10 @@ chrono = "0.4"
 clap = { version = "4.5", features = ["derive", "env"] }
 config = { version = "0.15", default-features = false, features = ["yaml"] }
 hex = { version = "0.4", features = ["serde"] }
-nilauth-client = { git = "https://github.com/NillionNetwork/nilvm", rev = "3b307cfa661baead3b64e6f7cb0f9a3d93cc38dc" }
-nillion-nucs = { git = "https://github.com/NillionNetwork/nilvm", rev = "3b307cfa661baead3b64e6f7cb0f9a3d93cc38dc" }
-nillion-chain-client = { git = "https://github.com/NillionNetwork/nilvm", rev = "3b307cfa661baead3b64e6f7cb0f9a3d93cc38dc" }
+itertools = "0.14"
+nilauth-client = { git = "https://github.com/NillionNetwork/nilvm", rev = "e30037128e8142e2d7d8f7cbd6e0914bf9fb250b" }
+nillion-nucs = { git = "https://github.com/NillionNetwork/nilvm", rev = "e30037128e8142e2d7d8f7cbd6e0914bf9fb250b" }
+nillion-chain-client = { git = "https://github.com/NillionNetwork/nilvm", rev = "e30037128e8142e2d7d8f7cbd6e0914bf9fb250b" }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 rust_decimal = "1.37"
 serde = { version = "1.0", features = ["derive"] }

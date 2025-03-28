@@ -1,10 +1,9 @@
-use std::time::Duration;
-
 use chrono::Utc;
 use nilauth_client::client::{DefaultNilauthClient, NilauthClient};
 use nillion_nucs::{envelope::NucTokenEnvelope, k256::SecretKey, token::Did};
 use rstest::rstest;
 use setup::{nilauth, NilAuth};
+use std::time::Duration;
 
 mod setup;
 
@@ -71,6 +70,7 @@ async fn pay_too_soon(nilauth: NilAuth) {
         )
         .await
         .expect("failed to pay subscription");
+
     // Pay again, this should fail because we just started our subscription
     client
         .pay_subscription(
@@ -79,4 +79,55 @@ async fn pay_too_soon(nilauth: NilAuth) {
         )
         .await
         .expect_err("subscription payment succeeded");
+}
+
+#[rstest]
+#[tokio::test]
+async fn list_unrevoked(nilauth: NilAuth) {
+    let client = DefaultNilauthClient::new(nilauth.endpoint).expect("failed to build client");
+    let key = SecretKey::random(&mut rand::thread_rng());
+    client
+        .pay_subscription(
+            &mut *nilauth.nilchain_client.lock().await,
+            &key.public_key(),
+        )
+        .await
+        .expect("failed to pay subscription");
+    let token = client.request_token(&key).await.expect("failed to mint");
+    let token = NucTokenEnvelope::decode(&token).expect("invalid token");
+    let revocations = client
+        .lookup_revoked_tokens(&token)
+        .await
+        .expect("look up failed");
+    assert_eq!(revocations.len(), 0);
+}
+
+#[rstest]
+#[tokio::test]
+async fn revoke(nilauth: NilAuth) {
+    let client = DefaultNilauthClient::new(nilauth.endpoint).expect("failed to build client");
+    let key = SecretKey::random(&mut rand::thread_rng());
+    client
+        .pay_subscription(
+            &mut *nilauth.nilchain_client.lock().await,
+            &key.public_key(),
+        )
+        .await
+        .expect("failed to pay subscription");
+
+    // Get a token, create a new one and revoke it
+    let token = client.request_token(&key).await.expect("failed to mint");
+    let token = NucTokenEnvelope::decode(&token).expect("invalid token");
+
+    client
+        .revoke_token(&token, &key)
+        .await
+        .expect("failed to revoke");
+
+    let revocations = client
+        .lookup_revoked_tokens(&token)
+        .await
+        .expect("look up failed");
+    let hashes: Vec<_> = revocations.into_iter().map(|r| r.token_hash).collect();
+    assert_eq!(hashes, &[token.token().compute_hash()]);
 }

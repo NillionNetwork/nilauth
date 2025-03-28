@@ -1,20 +1,33 @@
-use crate::state::AppState;
+use crate::{auth::TokenValidatorState, state::AppState};
 use axum::{
     extract::{rejection::JsonRejection, FromRequest, Request},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
-    Router,
+    Extension, Router,
 };
+use nillion_nucs::{token::Did, validator::NucValidator};
 use serde::Serialize;
 use std::sync::Arc;
 
 pub(crate) mod about;
 pub(crate) mod nucs;
 pub(crate) mod payments;
+pub(crate) mod revocations;
 
 pub fn build_router(state: AppState) -> Router {
     let state = Arc::new(state);
+    let public_key = state.parameters.secret_key.public_key();
+    let validator = NucValidator::new(&[public_key]);
+    // SAFETY: the key size is guaranteed to be correct.
+    let nilauth_did = Did::new(
+        public_key
+            .to_sec1_bytes()
+            .as_ref()
+            .try_into()
+            .expect("invalid public key size"),
+    );
+    let validator_state = TokenValidatorState::new(validator, nilauth_did);
     Router::new()
         .route("/about", get(about::handler))
         .nest(
@@ -22,9 +35,12 @@ pub fn build_router(state: AppState) -> Router {
             Router::new()
                 .route("/nucs/create", post(nucs::create::handler))
                 .route("/payments/validate", post(payments::validate::handler))
-                .route("/payments/cost", get(payments::cost::handler)),
+                .route("/payments/cost", get(payments::cost::handler))
+                .route("/revocations/revoke", post(revocations::revoke::handler))
+                .route("/revocations/lookup", post(revocations::lookup::handler)),
         )
         .with_state(state)
+        .layer(Extension(validator_state))
 }
 
 /// An error when handling a request.
@@ -34,6 +50,7 @@ pub struct RequestHandlerError {
 }
 
 /// A type that behaves like `axum::Json` but provides JSON structured errors when parsing fails.
+#[derive(Debug)]
 pub struct Json<T>(pub T);
 
 impl<S, T> FromRequest<S> for Json<T>

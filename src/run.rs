@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::db::revocations::PostgresRevocationDb;
 use crate::db::{account::PostgresAccountDb, PostgresPool};
 use crate::services::prices::CoinGeckoTokenPriceService;
 use crate::state::{AppState, Databases, Parameters, Services};
@@ -30,9 +31,10 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         .context("failed to create database connection")?;
     let databases = Databases {
         accounts: Box::new(PostgresAccountDb::new(
-            pool,
+            pool.clone(),
             config.payments.subscriptions.clone(),
         )),
+        revocations: Box::new(PostgresRevocationDb::new(pool)),
     };
     let state = AppState {
         parameters: Parameters {

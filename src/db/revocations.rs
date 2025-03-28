@@ -1,0 +1,132 @@
+use super::PostgresPool;
+use async_trait::async_trait;
+use chrono::{DateTime, Utc};
+use itertools::Itertools;
+use nillion_nucs::token::ProofHash;
+use serde::Serialize;
+use sqlx::prelude::FromRow;
+use tracing::error;
+
+/// A revocations database.
+#[cfg_attr(test, mockall::automock)]
+#[async_trait]
+pub(crate) trait RevocationDb: Send + Sync + 'static {
+    /// Store a revocation.
+    async fn store_revocation(
+        &self,
+        revocation: &ProofHash,
+        expires_at: DateTime<Utc>,
+    ) -> Result<(), StoreRevocationError>;
+
+    /// Lookup revocations.
+    async fn lookup_revocations(
+        &self,
+        hashes: &[ProofHash],
+    ) -> Result<Vec<RevokedToken>, LookupRevocationError>;
+}
+
+/// An error when storing a revocation.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum StoreRevocationError {
+    #[error("already revoked")]
+    AlreadyRevoked,
+
+    #[error("database error")]
+    Database,
+}
+
+impl From<sqlx::Error> for StoreRevocationError {
+    fn from(e: sqlx::Error) -> Self {
+        match e {
+            sqlx::Error::Database(e) if e.is_unique_violation() => Self::AlreadyRevoked,
+            _ => {
+                error!("Failed to store revocation: {e}");
+                Self::Database
+            }
+        }
+    }
+}
+
+/// An error when looking up a set of revocations.
+#[derive(Debug, thiserror::Error)]
+#[error("internal error")]
+pub(crate) struct LookupRevocationError;
+
+pub(crate) struct PostgresRevocationDb {
+    pool: PostgresPool,
+}
+
+impl PostgresRevocationDb {
+    pub fn new(pool: PostgresPool) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait]
+impl RevocationDb for PostgresRevocationDb {
+    async fn store_revocation(
+        &self,
+        revocation: &ProofHash,
+        expires_at: DateTime<Utc>,
+    ) -> Result<(), StoreRevocationError> {
+        sqlx::query("INSERT INTO revocations (token_hash, expires_at) VALUES ($1, $2)")
+            .bind(revocation.to_string())
+            .bind(expires_at)
+            .execute(&self.pool.0)
+            .await?;
+        Ok(())
+    }
+
+    async fn lookup_revocations(
+        &self,
+        hashes: &[ProofHash],
+    ) -> Result<Vec<RevokedToken>, LookupRevocationError> {
+        if hashes.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        #[derive(FromRow)]
+        struct Row {
+            token_hash: String,
+            revoked_at: DateTime<Utc>,
+        }
+
+        let placeholders = (1..=hashes.len()).map(|n| format!("${n}")).join(", ");
+        let raw_query = format!("SELECT * FROM revocations WHERE token_hash IN ({placeholders})");
+        let mut query = sqlx::query_as(&raw_query);
+        for hash in hashes {
+            query = query.bind(hash.to_string());
+        }
+        let rows: Vec<Row> = query.fetch_all(&self.pool.0).await.map_err(|e| {
+            error!("Failed to lookup revocations: {e}");
+            LookupRevocationError
+        })?;
+        let mut output = Vec::new();
+        for row in rows {
+            let Row {
+                token_hash,
+                revoked_at,
+            } = row;
+            let token_hash = hex::decode(&token_hash).map_err(|_| {
+                error!("Invalid hex public key in database: {token_hash}");
+                LookupRevocationError
+            })?;
+            output.push(RevokedToken {
+                token_hash,
+                revoked_at,
+            });
+        }
+        Ok(output)
+    }
+}
+
+/// A revoked token.
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct RevokedToken {
+    /// The token hash.
+    #[serde(serialize_with = "hex::serde::serialize")]
+    pub(crate) token_hash: Vec<u8>,
+
+    /// The timestamp at which the token was revoked.
+    pub(crate) revoked_at: DateTime<Utc>,
+}
