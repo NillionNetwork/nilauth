@@ -2,6 +2,7 @@ use crate::routes::RequestHandlerError;
 use crate::{routes::Json, state::SharedState};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use metrics::counter;
 use rust_decimal::Decimal;
 use serde::Serialize;
 use tracing::error;
@@ -28,6 +29,7 @@ pub(crate) async fn handler(state: SharedState) -> Result<Json<GetCostResponse>,
 
         Err(e) => {
             error!("Failed to get token price: {e}");
+            counter!("nil_token_price_fetch_errors_total").increment(1);
             Err(HandlerError::Internal)
         }
     }
