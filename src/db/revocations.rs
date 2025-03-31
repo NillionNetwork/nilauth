@@ -23,6 +23,9 @@ pub(crate) trait RevocationDb: Send + Sync + 'static {
         &self,
         hashes: &[ProofHash],
     ) -> Result<Vec<RevokedToken>, LookupRevocationError>;
+
+    /// Delete revoked tokens that expire before the given timestamp.
+    async fn delete_expired(&self, threshold: DateTime<Utc>) -> Result<u64, sqlx::Error>;
 }
 
 /// An error when storing a revocation.
@@ -117,6 +120,14 @@ impl RevocationDb for PostgresRevocationDb {
             });
         }
         Ok(output)
+    }
+
+    async fn delete_expired(&self, threshold: DateTime<Utc>) -> Result<u64, sqlx::Error> {
+        let result = sqlx::query("DELETE FROM revocations WHERE expires_at < $1")
+            .bind(threshold)
+            .execute(&self.pool.0)
+            .await?;
+        Ok(result.rows_affected())
     }
 }
 

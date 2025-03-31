@@ -1,3 +1,4 @@
+use crate::cleanup::RevokedTokenCleaner;
 use crate::config::Config;
 use crate::db::revocations::PostgresRevocationDb;
 use crate::db::{account::PostgresAccountDb, PostgresPool};
@@ -12,6 +13,7 @@ use axum_prometheus::{
 use chrono::Utc;
 use nillion_chain_client::tx::DefaultPaymentTransactionRetriever;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use tokio::{join, net::TcpListener};
 use tracing::info;
 
@@ -34,7 +36,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             pool.clone(),
             config.payments.subscriptions.clone(),
         )),
-        revocations: Box::new(PostgresRevocationDb::new(pool)),
+        revocations: Arc::new(PostgresRevocationDb::new(pool)),
     };
     let state = AppState {
         parameters: Parameters {
@@ -46,6 +48,12 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         services,
         databases,
     };
+    // Spawn a helper to clean up expired tokens
+    RevokedTokenCleaner::spawn(
+        state.databases.revocations.clone(),
+        Box::new(DefaultTimeService),
+    );
+
     // Create a custom prometheus layer that ignores unknown paths and returns `/unknown` instead so
     // crawlers/malicious actors can't create high cardinality metrics by hitting unknown routes.
     let (prometheus_layer, metrics_handle) = PrometheusMetricLayerBuilder::new()

@@ -3,6 +3,7 @@ pub mod config;
 pub mod run;
 
 mod auth;
+mod cleanup;
 mod db;
 mod routes;
 mod services;

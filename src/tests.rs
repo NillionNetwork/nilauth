@@ -79,7 +79,7 @@ impl AppStateBuilder {
             },
             databases: Databases {
                 accounts: Box::new(account_db),
-                revocations: Box::new(revocation_db),
+                revocations: Arc::new(revocation_db),
             },
         })
     }
