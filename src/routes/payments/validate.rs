@@ -162,7 +162,7 @@ impl IntoResponse for HandlerError {
             ),
             Self::RetrieveTransaction(e) => match e {
                 RetrieveError::NotCommitted => (
-                    StatusCode::PRECONDITION_FAILED,
+                    StatusCode::TOO_EARLY,
                     "transaction is not committed yet".into(),
                 ),
                 RetrieveError::Malformed(_) => {
