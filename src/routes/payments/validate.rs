@@ -91,8 +91,7 @@ pub(crate) async fn handler(
         .databases
         .accounts
         .credit_payment(&tx_hash, public_key)
-        .await
-        .map_err(HandlerError::CreditPayment)?;
+        .await?;
     Ok(Json(()))
 }
 
@@ -115,16 +114,17 @@ async fn store_invalid_payment(state: &SharedState, tx_hash: &str, public_key: P
 
 #[derive(Debug, EnumDiscriminants)]
 pub(crate) enum HandlerError {
-    CreditPayment(CreditPaymentError),
+    CannotRenewYet,
     HashMismatch,
-    InvalidPublicKey,
     InsufficientPayment,
     Internal,
+    InvalidPublicKey,
     MalformedPayload(String),
-    UnknownPublicKey,
-    TransactionNotCommitted,
     MalformedTransaction,
+    PaymentAlreadyProcessed,
     TransactionLookup,
+    TransactionNotCommitted,
+    UnknownPublicKey,
 }
 
 impl From<RetrieveError> for HandlerError {
@@ -137,16 +137,27 @@ impl From<RetrieveError> for HandlerError {
     }
 }
 
+impl From<CreditPaymentError> for HandlerError {
+    fn from(e: CreditPaymentError) -> Self {
+        match e {
+            CreditPaymentError::DuplicateKey => Self::PaymentAlreadyProcessed,
+            CreditPaymentError::Database => Self::Internal,
+            CreditPaymentError::CannotRenewYet => Self::CannotRenewYet,
+        }
+    }
+}
+
 impl IntoResponse for HandlerError {
     fn into_response(self) -> Response {
         let discriminant = HandlerErrorDiscriminants::from(&self);
         let (code, message) = match self {
-            Self::CreditPayment(CreditPaymentError::Database) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into())
-            }
-            Self::CreditPayment(e) => (
+            Self::CannotRenewYet => (
                 StatusCode::PRECONDITION_FAILED,
-                format!("failed to credit payment: {e}"),
+                "cannot renew subscription yet".into(),
+            ),
+            Self::PaymentAlreadyProcessed => (
+                StatusCode::PRECONDITION_FAILED,
+                "payment transaction already processed".into(),
             ),
             Self::HashMismatch => (
                 StatusCode::BAD_REQUEST,

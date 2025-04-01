@@ -1,5 +1,7 @@
 use chrono::Utc;
-use nilauth_client::client::{DefaultNilauthClient, NilauthClient};
+use nilauth_client::client::{
+    DefaultNilauthClient, NilauthClient, PaySubscriptionError, RequestTokenError,
+};
 use nillion_nucs::{envelope::NucTokenEnvelope, k256::SecretKey, token::Did};
 use rstest::rstest;
 use setup::{nilauth, NilAuth};
@@ -52,10 +54,14 @@ async fn pay_and_mint(nilauth: NilAuth) {
 async fn mint_without_paying(nilauth: NilAuth) {
     let client = DefaultNilauthClient::new(nilauth.endpoint).expect("failed to build client");
     let key = SecretKey::random(&mut rand::thread_rng());
-    client
+    let err = client
         .request_token(&key)
         .await
         .expect_err("token minted successfully");
+    let RequestTokenError::Request(err) = err else {
+        panic!("not a request error: {err}")
+    };
+    assert_eq!(err.error_code, "NOT_SUBSCRIBED");
 }
 
 #[rstest]
@@ -72,13 +78,17 @@ async fn pay_too_soon(nilauth: NilAuth) {
         .expect("failed to pay subscription");
 
     // Pay again, this should fail because we just started our subscription
-    client
+    let err = client
         .pay_subscription(
             &mut *nilauth.nilchain_client.lock().await,
             &key.public_key(),
         )
         .await
         .expect_err("subscription payment succeeded");
+    let PaySubscriptionError::Request(err) = err else {
+        panic!("not a request error: {err}")
+    };
+    assert_eq!(err.error_code, "CANNOT_RENEW_YET");
 }
 
 #[rstest]
