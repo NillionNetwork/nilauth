@@ -11,6 +11,7 @@ use nillion_nucs::k256::{
 };
 use nillion_nucs::{builder::NucTokenBuilder, k256::ecdsa::VerifyingKey, token::Did};
 use serde::{Deserialize, Serialize};
+use strum::EnumDiscriminants;
 use tracing::{error, info};
 
 #[derive(Deserialize)]
@@ -117,7 +118,7 @@ pub(crate) async fn handler(
     Ok(Json(response))
 }
 
-#[derive(Debug)]
+#[derive(Debug, EnumDiscriminants)]
 pub(crate) enum HandlerError {
     Internal,
     InvalidPublicKey,
@@ -132,6 +133,7 @@ pub(crate) enum HandlerError {
 
 impl IntoResponse for HandlerError {
     fn into_response(self) -> Response {
+        let discriminant = HandlerErrorDiscriminants::from(&self);
         let (code, message) = match self {
             Self::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()),
             Self::InvalidPublicKey => (StatusCode::BAD_REQUEST, "invalid public key".into()),
@@ -154,7 +156,7 @@ impl IntoResponse for HandlerError {
                 "subscription expired".into(),
             ),
         };
-        let response = RequestHandlerError { message };
+        let response = RequestHandlerError::new(message, format!("{discriminant:?}"));
         (code, Json(response)).into_response()
     }
 }

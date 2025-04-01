@@ -6,6 +6,7 @@ use axum::{
     routing::{get, post},
     Extension, Router,
 };
+use convert_case::{Case, Casing};
 use nillion_nucs::{token::Did, validator::NucValidator};
 use serde::Serialize;
 use std::sync::Arc;
@@ -49,6 +50,17 @@ pub fn build_router(state: AppState) -> Router {
 #[derive(Debug, Serialize)]
 pub struct RequestHandlerError {
     pub(crate) message: String,
+    pub(crate) error_code: String,
+}
+
+impl RequestHandlerError {
+    pub(crate) fn new(message: impl Into<String>, error_code: impl AsRef<str>) -> Self {
+        let error_code = error_code.as_ref().to_case(Case::UpperSnake);
+        Self {
+            message: message.into(),
+            error_code,
+        }
+    }
 }
 
 /// A type that behaves like `axum::Json` but provides JSON structured errors when parsing fails.
@@ -69,10 +81,7 @@ where
         match axum::Json::<T>::from_request(req, state).await {
             Ok(value) => Ok(Self(value.0)),
             Err(rejection) => {
-                // Construct a JSON error.
-                let payload = RequestHandlerError {
-                    message: rejection.body_text(),
-                };
+                let payload = RequestHandlerError::new(rejection.body_text(), "MALFORMED_REQUEST");
 
                 Err((rejection.status(), axum::Json(payload)))
             }

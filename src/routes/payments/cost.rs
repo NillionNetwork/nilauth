@@ -5,6 +5,7 @@ use axum::response::{IntoResponse, Response};
 use metrics::counter;
 use rust_decimal::Decimal;
 use serde::Serialize;
+use strum::EnumDiscriminants;
 use tracing::error;
 
 pub(crate) static UNIL_IN_NIL: u64 = 1_000_000;
@@ -35,17 +36,18 @@ pub(crate) async fn handler(state: SharedState) -> Result<Json<GetCostResponse>,
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, EnumDiscriminants)]
 pub(crate) enum HandlerError {
     Internal,
 }
 
 impl IntoResponse for HandlerError {
     fn into_response(self) -> Response {
+        let discriminant = HandlerErrorDiscriminants::from(&self);
         let (code, message) = match self {
-            Self::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()),
+            Self::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "internal error"),
         };
-        let response = RequestHandlerError { message };
+        let response = RequestHandlerError::new(message, format!("{discriminant:?}"));
         (code, Json(response)).into_response()
     }
 }

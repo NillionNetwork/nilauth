@@ -13,6 +13,7 @@ use nillion_nucs::k256::{
 };
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
+use strum::EnumDiscriminants;
 use tracing::{error, info, warn};
 
 #[derive(Deserialize)]
@@ -59,12 +60,7 @@ pub(crate) async fn handler(
 
     // Make sure the client has proven they made the transaction
     let tx_hash = request.tx_hash;
-    let tx = state
-        .services
-        .tx
-        .get(&tx_hash)
-        .await
-        .map_err(HandlerError::RetrieveTransaction)?;
+    let tx = state.services.tx.get(&tx_hash).await?;
     let payload_hash = Sha256::digest(&request.payload);
     if tx.resource != payload_hash.as_slice() {
         store_invalid_payment(&state, &tx_hash, public_key).await;
@@ -117,7 +113,7 @@ async fn store_invalid_payment(state: &SharedState, tx_hash: &str, public_key: P
     };
 }
 
-#[derive(Debug)]
+#[derive(Debug, EnumDiscriminants)]
 pub(crate) enum HandlerError {
     CreditPayment(CreditPaymentError),
     HashMismatch,
@@ -126,11 +122,24 @@ pub(crate) enum HandlerError {
     Internal,
     MalformedPayload(String),
     UnknownPublicKey,
-    RetrieveTransaction(RetrieveError),
+    TransactionNotCommitted,
+    MalformedTransaction,
+    TransactionLookup,
+}
+
+impl From<RetrieveError> for HandlerError {
+    fn from(e: RetrieveError) -> Self {
+        match e {
+            RetrieveError::NotCommitted => Self::TransactionNotCommitted,
+            RetrieveError::Malformed(_) => Self::MalformedTransaction,
+            RetrieveError::TransactionFetch(_) => Self::TransactionLookup,
+        }
+    }
 }
 
 impl IntoResponse for HandlerError {
     fn into_response(self) -> Response {
+        let discriminant = HandlerErrorDiscriminants::from(&self);
         let (code, message) = match self {
             Self::CreditPayment(CreditPaymentError::Database) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into())
@@ -160,20 +169,17 @@ impl IntoResponse for HandlerError {
                 StatusCode::BAD_REQUEST,
                 "payload public key is different from ours".into(),
             ),
-            Self::RetrieveTransaction(e) => match e {
-                RetrieveError::NotCommitted => (
-                    StatusCode::TOO_EARLY,
-                    "transaction is not committed yet".into(),
-                ),
-                RetrieveError::Malformed(_) => {
-                    (StatusCode::BAD_REQUEST, "transaction is malformed".into())
-                }
-                RetrieveError::TransactionFetch(_) => {
-                    (StatusCode::NOT_FOUND, "transaction not found".into())
-                }
-            },
+            Self::TransactionNotCommitted => (
+                StatusCode::PRECONDITION_FAILED,
+                "transaction is not yet committed".into(),
+            ),
+            Self::MalformedTransaction => (
+                StatusCode::BAD_REQUEST,
+                "transaction payload is malformed".into(),
+            ),
+            Self::TransactionLookup => (StatusCode::NOT_FOUND, "transaction not found".into()),
         };
-        let response = RequestHandlerError { message };
+        let response = RequestHandlerError::new(message, format!("{discriminant:?}"));
         (code, Json(response)).into_response()
     }
 }
@@ -345,6 +351,6 @@ mod tests {
             })
             .await
             .expect_err("request succeeded");
-        assert!(matches!(err, HandlerError::RetrieveTransaction(_)));
+        assert!(matches!(err, HandlerError::TransactionNotCommitted));
     }
 }
