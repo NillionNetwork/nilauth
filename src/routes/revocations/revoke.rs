@@ -12,6 +12,7 @@ use nillion_nucs::{
     token::{Command, TokenBody},
 };
 use std::{iter, sync::LazyLock};
+use strum::EnumDiscriminants;
 use tracing::info;
 
 const TOKEN_ARG: &str = "token";
@@ -72,7 +73,7 @@ pub(crate) async fn handler(state: SharedState, auth: NucAuth) -> Result<Json<()
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, EnumDiscriminants)]
 pub(crate) enum HandlerError {
     Database,
     InvalidCommand,
@@ -87,6 +88,7 @@ pub(crate) enum HandlerError {
 
 impl IntoResponse for HandlerError {
     fn into_response(self) -> Response {
+        let discriminant = HandlerErrorDiscriminants::from(&self);
         let (code, message) = match self {
             Self::Database => (StatusCode::INTERNAL_SERVER_ERROR, "database error".into()),
             Self::InvalidCommand => (
@@ -120,7 +122,7 @@ impl IntoResponse for HandlerError {
                 format!("expected string token in `{TOKEN_ARG}` arg"),
             ),
         };
-        let response = RequestHandlerError { message };
+        let response = RequestHandlerError::new(message, format!("{discriminant:?}"));
         (code, Json(response)).into_response()
     }
 }

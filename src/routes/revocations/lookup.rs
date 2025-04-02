@@ -6,6 +6,7 @@ use axum::response::{IntoResponse, Response};
 use nillion_nucs::token::ProofHash;
 use nillion_nucs::validator::ValidationParameters;
 use serde::{Deserialize, Serialize};
+use strum::EnumDiscriminants;
 
 #[derive(Deserialize)]
 pub(crate) struct LookupRevocationRequest {
@@ -37,6 +38,7 @@ pub(crate) async fn handler(
     Ok(Json(response))
 }
 
+#[derive(Debug, EnumDiscriminants)]
 pub(crate) enum HandlerError {
     Database,
     TooManyHashes,
@@ -44,6 +46,7 @@ pub(crate) enum HandlerError {
 
 impl IntoResponse for HandlerError {
     fn into_response(self) -> Response {
+        let discriminant = HandlerErrorDiscriminants::from(&self);
         let (code, message) = match self {
             Self::Database => (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()),
             Self::TooManyHashes => (
@@ -54,7 +57,7 @@ impl IntoResponse for HandlerError {
                 ),
             ),
         };
-        let response = RequestHandlerError { message };
+        let response = RequestHandlerError::new(message, format!("{discriminant:?}"));
         (code, Json(response)).into_response()
     }
 }

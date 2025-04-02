@@ -28,9 +28,7 @@ where
                 error!("Token validator state not configured");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(RequestHandlerError {
-                        message: "internal error".into(),
-                    }),
+                    Json(RequestHandlerError::new("internal error", "INTERNAL")),
                 )
             })?;
         let payload = match parts.headers.get(AUTHORIZATION_HEADER) {
@@ -63,9 +61,7 @@ where
 fn make_unauthorized(message: impl Into<String>) -> (StatusCode, Json<RequestHandlerError>) {
     (
         StatusCode::UNAUTHORIZED,
-        Json(RequestHandlerError {
-            message: message.into(),
-        }),
+        Json(RequestHandlerError::new(message, "UNAUTHORIZED")),
     )
 }
 
