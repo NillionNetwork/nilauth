@@ -49,7 +49,7 @@ pub struct ServerConfig {
 #[serde(rename_all = "snake_case")]
 pub enum PrivateKeyConfig {
     /// The raw private key in hex.
-    Hex(#[serde(deserialize_with = "hex::serde::deserialize")] [u8; 32]),
+    Hex(#[serde(with = "hex::serde")] [u8; 32]),
 
     /// The path to the private key.
     Path(PathBuf),

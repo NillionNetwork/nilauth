@@ -21,6 +21,11 @@ async fn pay_and_mint(nilauth: NilAuth) {
         )
         .await
         .expect("failed to pay subscription");
+    client
+        .subscription_status(&key)
+        .await
+        .expect("failed to get subscription status")
+        .expect("no subscription information");
     let token = client
         .request_token(&key)
         .await

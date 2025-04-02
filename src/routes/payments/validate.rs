@@ -20,10 +20,10 @@ use tracing::{error, info, warn};
 pub(crate) struct ValidatePaymentRequest {
     tx_hash: String,
 
-    #[serde(deserialize_with = "hex::serde::deserialize")]
+    #[serde(with = "hex::serde")]
     payload: Vec<u8>,
 
-    #[serde(deserialize_with = "hex::serde::deserialize")]
+    #[serde(with = "hex::serde")]
     public_key: [u8; 33],
 }
 
@@ -31,16 +31,10 @@ pub(crate) struct ValidatePaymentRequest {
 #[serde(deny_unknown_fields)]
 struct Payload {
     #[allow(dead_code)]
-    #[serde(
-        serialize_with = "hex::serde::serialize",
-        deserialize_with = "hex::serde::deserialize"
-    )]
+    #[serde(with = "hex::serde")]
     nonce: [u8; 16],
 
-    #[serde(
-        serialize_with = "hex::serde::serialize",
-        deserialize_with = "hex::serde::deserialize"
-    )]
+    #[serde(with = "hex::serde")]
     service_public_key: Vec<u8>,
 }
 

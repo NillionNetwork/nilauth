@@ -1,55 +1,31 @@
 use crate::routes::Json;
+use crate::signed::{SignedRequest, VerificationError};
 use crate::{routes::RequestHandlerError, state::SharedState};
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
 use chrono::{DateTime, Utc};
-use nillion_nucs::k256::{
-    ecdsa::{signature::Verifier, Signature},
-    PublicKey,
-};
-use nillion_nucs::{builder::NucTokenBuilder, k256::ecdsa::VerifyingKey, token::Did};
+use nillion_nucs::{builder::NucTokenBuilder, token::Did};
 use serde::{Deserialize, Serialize};
 use strum::EnumDiscriminants;
 use tracing::{error, info};
-
-#[derive(Deserialize)]
-pub(crate) struct CreateNucRequest {
-    #[serde(deserialize_with = "hex::serde::deserialize")]
-    public_key: [u8; 33],
-
-    #[serde(deserialize_with = "hex::serde::deserialize")]
-    signature: [u8; 64],
-
-    #[serde(deserialize_with = "hex::serde::deserialize")]
-    payload: Vec<u8>,
-}
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SignablePayload {
     // A nonce, to add entropy.
     #[allow(dead_code)]
-    #[serde(
-        serialize_with = "hex::serde::serialize",
-        deserialize_with = "hex::serde::deserialize"
-    )]
+    #[serde(with = "hex::serde")]
     nonce: [u8; 16],
 
     // When this payload is no longer considered valid, to prevent reusing this forever if it
     // leaks.
-    #[serde(
-        deserialize_with = "chrono::serde::ts_seconds::deserialize",
-        serialize_with = "chrono::serde::ts_seconds::serialize"
-    )]
+    #[serde(with = "chrono::serde::ts_seconds")]
     expires_at: DateTime<Utc>,
 
     // Our public key, to ensure this request can't be redirected to another authority service.
-    #[serde(
-        serialize_with = "hex::serde::serialize",
-        deserialize_with = "hex::serde::deserialize"
-    )]
+    #[serde(with = "hex::serde")]
     target_public_key: [u8; 33],
 }
 
@@ -60,7 +36,7 @@ pub(crate) struct CreateNucResponse {
 
 pub(crate) async fn handler(
     state: SharedState,
-    request: Json<CreateNucRequest>,
+    request: Json<SignedRequest>,
 ) -> Result<Json<CreateNucResponse>, HandlerError> {
     let request = request.0;
     // Validate the payload has the right shape and toss it away.
@@ -73,18 +49,12 @@ pub(crate) async fn handler(
         return Err(HandlerError::InvalidTargetPublicKey);
     }
 
-    let verifying_key = VerifyingKey::from_sec1_bytes(&request.public_key)
-        .map_err(|_| HandlerError::InvalidPublicKey)?;
-    let signature = Signature::from_bytes(&request.signature.into())
-        .map_err(|_| HandlerError::InvalidSignature)?;
-    verifying_key
-        .verify(&request.payload, &signature)
-        .map_err(|_| HandlerError::SignatureVerification)?;
-
+    let requestor_did = Did::new(request.public_key);
+    let public_key = request.verify()?;
     let expires_at = match state
         .databases
         .accounts
-        .find_subscription_end(&PublicKey::from(verifying_key))
+        .find_subscription_end(&public_key)
         .await
     {
         Ok(Some(timestamp)) => {
@@ -102,7 +72,6 @@ pub(crate) async fn handler(
         }
     };
 
-    let requestor_did = Did::new(request.public_key);
     info!("Minting token for {requestor_did}, expires at '{expires_at}'");
     let token = NucTokenBuilder::delegation([])
         .command(["nil"])
@@ -129,6 +98,16 @@ pub(crate) enum HandlerError {
     PayloadExpired,
     SignatureVerification,
     SubscriptionExpired,
+}
+
+impl From<VerificationError> for HandlerError {
+    fn from(e: VerificationError) -> Self {
+        match e {
+            VerificationError::InvalidPublicKey => Self::InvalidPublicKey,
+            VerificationError::InvalidSignature => Self::InvalidSignature,
+            VerificationError::SignatureVerification => Self::SignatureVerification,
+        }
+    }
 }
 
 impl IntoResponse for HandlerError {
@@ -164,15 +143,12 @@ impl IntoResponse for HandlerError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::{AppStateBuilder, PublicKeyExt};
+    use crate::tests::AppStateBuilder;
     use axum::extract::State;
     use mockall::predicate::eq;
     use nillion_nucs::{
         envelope::NucTokenEnvelope,
-        k256::{
-            ecdsa::{signature::Signer, SigningKey},
-            SecretKey,
-        },
+        k256::{PublicKey, SecretKey},
     };
     use rstest::rstest;
     use std::time::Duration;
@@ -199,10 +175,7 @@ mod tests {
     }
 
     impl Handler {
-        async fn invoke(
-            self,
-            request: CreateNucRequest,
-        ) -> Result<CreateNucResponse, HandlerError> {
+        async fn invoke(self, request: SignedRequest) -> Result<CreateNucResponse, HandlerError> {
             let state = self.builder.build();
             let request = Json(request);
             handler(State(state), request).await.map(|r| r.0)
@@ -226,19 +199,12 @@ mod tests {
             .expect_subscription_ends(client_key.public_key(), Some(now + Duration::from_secs(60)));
         handler.builder.set_current_time(now);
 
-        let payload = serde_json::to_string(&SignablePayload {
+        let payload = SignablePayload {
             nonce: [0; 16],
             expires_at: now + Duration::from_secs(1),
             target_public_key: handler.builder.public_key().try_into().unwrap(),
-        })
-        .unwrap();
-        let signature: Signature = SigningKey::from(client_key.clone()).sign(payload.as_bytes());
-        let signature = signature.to_bytes().try_into().unwrap();
-        let request = CreateNucRequest {
-            public_key: client_key.public_key().to_bytes(),
-            signature,
-            payload: payload.as_bytes().to_vec(),
         };
+        let request = SignedRequest::new(&client_key, &payload);
         let response = handler.invoke(request).await.expect("failed to mint token");
         NucTokenEnvelope::decode(&response.token)
             .expect("invalid token")
@@ -252,19 +218,12 @@ mod tests {
         let client_key = SecretKey::random(&mut rand::thread_rng());
         handler.expect_subscription_ends(client_key.public_key(), None);
 
-        let payload = serde_json::to_string(&SignablePayload {
+        let payload = SignablePayload {
             nonce: [0; 16],
             expires_at: Utc::now(),
             target_public_key: handler.builder.public_key().try_into().unwrap(),
-        })
-        .unwrap();
-        let signature: Signature = SigningKey::from(client_key.clone()).sign(payload.as_bytes());
-        let signature = signature.to_bytes().try_into().unwrap();
-        let request = CreateNucRequest {
-            public_key: client_key.public_key().to_bytes(),
-            signature,
-            payload: payload.as_bytes().to_vec(),
         };
+        let request = SignedRequest::new(&client_key, &payload);
         let err = handler
             .invoke(request)
             .await
@@ -281,19 +240,12 @@ mod tests {
             .expect_subscription_ends(client_key.public_key(), Some(now - Duration::from_secs(1)));
         handler.builder.set_current_time(now);
 
-        let payload = serde_json::to_string(&SignablePayload {
+        let payload = &SignablePayload {
             nonce: [0; 16],
             expires_at: now + Duration::from_secs(1),
             target_public_key: handler.builder.public_key().try_into().unwrap(),
-        })
-        .unwrap();
-        let signature: Signature = SigningKey::from(client_key.clone()).sign(payload.as_bytes());
-        let signature = signature.to_bytes().try_into().unwrap();
-        let request = CreateNucRequest {
-            public_key: client_key.public_key().to_bytes(),
-            signature,
-            payload: payload.as_bytes().to_vec(),
         };
+        let request = SignedRequest::new(&client_key, &payload);
         let err = handler
             .invoke(request)
             .await
@@ -309,19 +261,12 @@ mod tests {
     async fn invalid_signature(#[case] modifier: InputModifier) {
         let handler = Handler::default();
         let client_key = SecretKey::random(&mut rand::thread_rng());
-        let payload = serde_json::to_string(&SignablePayload {
+        let payload = SignablePayload {
             nonce: [0; 16],
             expires_at: Utc::now(),
             target_public_key: handler.builder.public_key().try_into().unwrap(),
-        })
-        .unwrap();
-        let signature: Signature = SigningKey::from(client_key.clone()).sign(payload.as_bytes());
-        let signature = signature.to_bytes().try_into().unwrap();
-        let mut request = CreateNucRequest {
-            public_key: client_key.public_key().to_bytes(),
-            signature,
-            payload: payload.into(),
         };
+        let mut request = SignedRequest::new(&client_key, &payload);
         match modifier {
             InputModifier::Nonce => {
                 request.payload = serde_json::to_string(&SignablePayload {
@@ -342,19 +287,12 @@ mod tests {
     async fn expired_request() {
         let handler = Handler::default();
         let client_key = SecretKey::random(&mut rand::thread_rng());
-        let payload = serde_json::to_string(&SignablePayload {
+        let payload = SignablePayload {
             nonce: [0; 16],
             expires_at: Utc::now() - Duration::from_secs(3600),
             target_public_key: handler.builder.public_key().try_into().unwrap(),
-        })
-        .unwrap();
-        let signature: Signature = SigningKey::from(client_key.clone()).sign(payload.as_bytes());
-        let signature = signature.to_bytes().try_into().unwrap();
-        let request = CreateNucRequest {
-            public_key: client_key.public_key().to_bytes(),
-            signature,
-            payload: payload.as_bytes().to_vec(),
         };
+        let request = SignedRequest::new(&client_key, &payload);
         let err = handler
             .invoke(request)
             .await
@@ -366,19 +304,12 @@ mod tests {
     async fn invalid_target_public_key() {
         let handler = Handler::default();
         let client_key = SecretKey::random(&mut rand::thread_rng());
-        let payload = serde_json::to_string(&SignablePayload {
+        let payload = SignablePayload {
             nonce: [0; 16],
             expires_at: Utc::now(),
             target_public_key: [0; 33],
-        })
-        .unwrap();
-        let signature: Signature = SigningKey::from(client_key.clone()).sign(payload.as_bytes());
-        let signature = signature.to_bytes().try_into().unwrap();
-        let request = CreateNucRequest {
-            public_key: client_key.public_key().to_bytes(),
-            signature,
-            payload: payload.as_bytes().to_vec(),
         };
+        let request = SignedRequest::new(&client_key, &payload);
         let err = handler
             .invoke(request)
             .await

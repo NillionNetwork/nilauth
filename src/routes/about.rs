@@ -5,7 +5,7 @@ use serde::Serialize;
 
 #[derive(Serialize)]
 pub(crate) struct About {
-    #[serde(serialize_with = "hex::serde::serialize")]
+    #[serde(with = "hex::serde")]
     public_key: Box<[u8]>,
 
     build: BuildInfo,
