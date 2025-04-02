@@ -58,7 +58,8 @@ jobs:
             TAGS="$TAGS -t ${ECR_REGISTRY_URL}:latest"
           fi
 
-          docker build \
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
             --push \
             -f Dockerfile \
             $TAGS \
