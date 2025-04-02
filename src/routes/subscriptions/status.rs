@@ -24,7 +24,7 @@ struct Payload {
 #[derive(Debug, Serialize)]
 pub(crate) struct SubscriptionStatusResponse {
     subscribed: bool,
-    subscription: Option<Subscription>,
+    details: Option<Subscription>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -52,11 +52,13 @@ pub(crate) async fn handler(
             error!("Subscription lookup failed: {e}");
             HandlerError::Internal
         })?;
-    let subscription = expires_at.map(|expires_at| Subscription { expires_at });
-    let subscribed = subscription.is_some();
+    let details = expires_at.map(|expires_at| Subscription { expires_at });
+    let subscribed = expires_at
+        .map(|e| e > state.services.time.current_time())
+        .unwrap_or_default();
     Ok(Json(SubscriptionStatusResponse {
         subscribed,
-        subscription,
+        details,
     }))
 }
 
@@ -161,11 +163,42 @@ mod tests {
         let response = handler.invoke(request).await.expect("handler failed");
         assert!(response.subscribed);
         assert_eq!(
-            response.subscription,
+            response.details,
             Some(Subscription {
                 expires_at: timestamp
             })
         );
+    }
+
+    #[tokio::test]
+    async fn expired_subscription() {
+        let mut handler = Handler::default();
+        let key = SecretKey::random(&mut rand::thread_rng());
+        let now = Utc::now();
+        let timestamp = now - Duration::from_secs(60);
+        handler
+            .builder
+            .time_service
+            .expect_current_time()
+            .returning(move || now);
+
+        handler
+            .builder
+            .account_db
+            .expect_find_subscription_end()
+            .with(eq(key.public_key()))
+            .return_once(move |_| Ok(Some(timestamp)));
+
+        let payload = Payload {
+            nonce: rand::random(),
+            expires_at: now + Duration::from_secs(60),
+        };
+        let request = SignedRequest::new(&key, &payload);
+        let response = handler.invoke(request).await.expect("handler failed");
+        assert!(!response.subscribed);
+        response
+            .details
+            .expect("subscription should still be returned");
     }
 
     #[tokio::test]
