@@ -10,6 +10,7 @@ use nillion_chain_client::tx::{PaymentTransaction, PaymentTransactionRetriever, 
 use nillion_nucs::k256::{PublicKey, SecretKey};
 use rust_decimal::Decimal;
 use std::sync::Arc;
+use std::time::Duration;
 
 mock! {
     pub(crate) PaymentRetriever {}
@@ -28,6 +29,7 @@ pub(crate) struct AppStateBuilder {
     pub(crate) account_db: MockAccountDb,
     pub(crate) revocation_db: MockRevocationDb,
     pub(crate) subscription_cost: Decimal,
+    pub(crate) subscription_renewal_threshold: Duration,
 }
 
 impl Default for AppStateBuilder {
@@ -40,6 +42,7 @@ impl Default for AppStateBuilder {
             account_db: Default::default(),
             revocation_db: Default::default(),
             subscription_cost: 1.into(),
+            subscription_renewal_threshold: Duration::from_secs(60),
         }
     }
 }
@@ -62,6 +65,7 @@ impl AppStateBuilder {
             account_db,
             revocation_db,
             subscription_cost,
+            subscription_renewal_threshold,
         } = self;
 
         Arc::new(AppState {
@@ -71,6 +75,7 @@ impl AppStateBuilder {
                 subscription_cost,
                 // 0.01
                 subscription_cost_slippage: Decimal::new(1, 2),
+                subscription_renewal_threshold,
             },
             services: Services {
                 tx: Box::new(tx_retriever),

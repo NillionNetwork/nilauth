@@ -8,7 +8,7 @@ use chrono::{DateTime, Utc};
 use nillion_chain_client::tx::PaymentTransactionRetriever;
 use nillion_nucs::k256::SecretKey;
 use rust_decimal::Decimal;
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 pub(crate) type SharedState = State<Arc<AppState>>;
 
@@ -57,4 +57,7 @@ pub struct Parameters {
 
     /// The allowed slippage in the range 0-1.
     pub subscription_cost_slippage: Decimal,
+
+    /// The threshold at which a subscription can be renewd.
+    pub subscription_renewal_threshold: Duration,
 }

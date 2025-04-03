@@ -15,10 +15,7 @@ async fn pay_and_mint(nilauth: NilAuth) {
     let client = DefaultNilauthClient::new(nilauth.endpoint).expect("failed to build client");
     let key = SecretKey::random(&mut rand::thread_rng());
     client
-        .pay_subscription(
-            &mut *nilauth.nilchain_client.lock().await,
-            &key.public_key(),
-        )
+        .pay_subscription(&mut *nilauth.nilchain_client.lock().await, &key)
         .await
         .expect("failed to pay subscription");
     let subscription = client
@@ -89,25 +86,18 @@ async fn pay_too_soon(nilauth: NilAuth) {
     let client = DefaultNilauthClient::new(nilauth.endpoint).expect("failed to build client");
     let key = SecretKey::random(&mut rand::thread_rng());
     client
-        .pay_subscription(
-            &mut *nilauth.nilchain_client.lock().await,
-            &key.public_key(),
-        )
+        .pay_subscription(&mut *nilauth.nilchain_client.lock().await, &key)
         .await
         .expect("failed to pay subscription");
 
     // Pay again, this should fail because we just started our subscription
     let err = client
-        .pay_subscription(
-            &mut *nilauth.nilchain_client.lock().await,
-            &key.public_key(),
-        )
+        .pay_subscription(&mut *nilauth.nilchain_client.lock().await, &key)
         .await
         .expect_err("subscription payment succeeded");
-    let PaySubscriptionError::Request(err) = err else {
+    let PaySubscriptionError::CannotRenewYet(_) = err else {
         panic!("not a request error: {err}")
     };
-    assert_eq!(err.error_code, "CANNOT_RENEW_YET");
 }
 
 #[rstest]
@@ -116,10 +106,7 @@ async fn list_unrevoked(nilauth: NilAuth) {
     let client = DefaultNilauthClient::new(nilauth.endpoint).expect("failed to build client");
     let key = SecretKey::random(&mut rand::thread_rng());
     client
-        .pay_subscription(
-            &mut *nilauth.nilchain_client.lock().await,
-            &key.public_key(),
-        )
+        .pay_subscription(&mut *nilauth.nilchain_client.lock().await, &key)
         .await
         .expect("failed to pay subscription");
     let token = client.request_token(&key).await.expect("failed to mint");
@@ -137,10 +124,7 @@ async fn revoke(nilauth: NilAuth) {
     let client = DefaultNilauthClient::new(nilauth.endpoint).expect("failed to build client");
     let key = SecretKey::random(&mut rand::thread_rng());
     client
-        .pay_subscription(
-            &mut *nilauth.nilchain_client.lock().await,
-            &key.public_key(),
-        )
+        .pay_subscription(&mut *nilauth.nilchain_client.lock().await, &key)
         .await
         .expect("failed to pay subscription");
 
