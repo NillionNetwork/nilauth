@@ -44,6 +44,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             started_at: Utc::now(),
             subscription_cost: config.payments.subscriptions.dollar_cost,
             subscription_cost_slippage: config.payments.subscriptions.payment_slippage,
+            subscription_renewal_threshold: config.payments.subscriptions.renewal_threshold,
         },
         services,
         databases,

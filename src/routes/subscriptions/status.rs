@@ -31,6 +31,9 @@ pub(crate) struct SubscriptionStatusResponse {
 pub(crate) struct Subscription {
     #[serde(with = "chrono::serde::ts_seconds")]
     expires_at: DateTime<Utc>,
+
+    #[serde(with = "chrono::serde::ts_seconds")]
+    renewable_at: DateTime<Utc>,
 }
 
 pub(crate) async fn handler(
@@ -52,7 +55,10 @@ pub(crate) async fn handler(
             error!("Subscription lookup failed: {e}");
             HandlerError::Internal
         })?;
-    let details = expires_at.map(|expires_at| Subscription { expires_at });
+    let details = expires_at.map(|expires_at| Subscription {
+        expires_at,
+        renewable_at: expires_at - state.parameters.subscription_renewal_threshold,
+    });
     let subscribed = expires_at
         .map(|e| e > state.services.time.current_time())
         .unwrap_or_default();
@@ -155,6 +161,9 @@ mod tests {
             .with(eq(key.public_key()))
             .return_once(move |_| Ok(Some(timestamp)));
 
+        let renewal_threshold = Duration::from_secs(30);
+        handler.builder.subscription_renewal_threshold = renewal_threshold;
+
         let payload = Payload {
             nonce: rand::random(),
             expires_at: now + Duration::from_secs(60),
@@ -165,7 +174,8 @@ mod tests {
         assert_eq!(
             response.details,
             Some(Subscription {
-                expires_at: timestamp
+                expires_at: timestamp,
+                renewable_at: timestamp - renewal_threshold
             })
         );
     }
