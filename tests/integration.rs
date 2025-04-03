@@ -21,6 +21,12 @@ async fn pay_and_mint(nilauth: NilAuth) {
         )
         .await
         .expect("failed to pay subscription");
+    let subscription = client
+        .subscription_status(&key)
+        .await
+        .expect("failed to get subscription status");
+    assert!(subscription.subscribed);
+    subscription.details.expect("no subscription information");
     let token = client
         .request_token(&key)
         .await
@@ -47,6 +53,19 @@ async fn pay_and_mint(nilauth: NilAuth) {
     let minimum_expiration_time =
         Utc::now() + nilauth.config.payments.subscriptions.length - Duration::from_secs(10);
     assert!(token.expires_at.expect("no expiration on token") > minimum_expiration_time);
+}
+
+#[rstest]
+#[tokio::test]
+async fn subscription_status_without_subscription(nilauth: NilAuth) {
+    let client = DefaultNilauthClient::new(nilauth.endpoint).expect("failed to build client");
+    let key = SecretKey::random(&mut rand::thread_rng());
+    let subscription = client
+        .subscription_status(&key)
+        .await
+        .expect("failed to get subscription status");
+    assert!(!subscription.subscribed);
+    assert!(subscription.details.is_none());
 }
 
 #[rstest]

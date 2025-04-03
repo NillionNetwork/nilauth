@@ -16,6 +16,7 @@ pub(crate) mod health;
 pub(crate) mod nucs;
 pub(crate) mod payments;
 pub(crate) mod revocations;
+pub(crate) mod subscriptions;
 
 pub fn build_router(state: AppState) -> Router {
     let state = Arc::new(state);
@@ -40,7 +41,11 @@ pub fn build_router(state: AppState) -> Router {
                 .route("/payments/validate", post(payments::validate::handler))
                 .route("/payments/cost", get(payments::cost::handler))
                 .route("/revocations/revoke", post(revocations::revoke::handler))
-                .route("/revocations/lookup", post(revocations::lookup::handler)),
+                .route("/revocations/lookup", post(revocations::lookup::handler))
+                .route(
+                    "/subscriptions/status",
+                    post(subscriptions::status::handler),
+                ),
         )
         .with_state(state)
         .layer(Extension(validator_state))

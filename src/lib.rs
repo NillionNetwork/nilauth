@@ -7,6 +7,7 @@ mod cleanup;
 mod db;
 mod routes;
 mod services;
+mod signed;
 mod state;
 mod time;
 

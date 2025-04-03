@@ -135,7 +135,7 @@ impl RevocationDb for PostgresRevocationDb {
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct RevokedToken {
     /// The token hash.
-    #[serde(serialize_with = "hex::serde::serialize")]
+    #[serde(with = "hex::serde")]
     pub(crate) token_hash: Vec<u8>,
 
     /// The timestamp at which the token was revoked.
