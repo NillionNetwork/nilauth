@@ -10,7 +10,6 @@ use serde_json::json;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::{
     mem,
-    path::Path,
     sync::{Arc, LazyLock, Mutex},
     thread,
     time::Duration,
@@ -18,7 +17,7 @@ use std::{
 use testcontainers_modules::{
     postgres::Postgres,
     testcontainers::{
-        core::{wait::LogWaitStrategy, ContainerPort, Mount, WaitFor},
+        core::{wait::LogWaitStrategy, ContainerPort, WaitFor},
         runners::AsyncRunner,
         ContainerAsync, GenericImage, Image, ImageExt,
     },
@@ -90,20 +89,14 @@ impl Services {
     }
 
     async fn start_nilchaind() -> StartedContainer<GenericImage> {
-        let nilchain_config_path = Path::new("./nilchaind")
-            .canonicalize()
-            .expect("canonicalize failed")
-            .to_string_lossy()
-            .into_owned();
-
-        let container = GenericImage::new("ghcr.io/nillionnetwork/nilchaind", "v0.2.5")
-            .with_entrypoint("/bin/sh")
-            .with_wait_for(WaitFor::Log(LogWaitStrategy::stdout(b"Starting RPC HTTP server")))
+        let container = GenericImage::new("ghcr.io/nillionnetwork/nilchain-devnet", "v0.1.0")
+            .with_wait_for(WaitFor::Log(LogWaitStrategy::stdout(
+                b"Starting RPC HTTP server",
+            )))
             .with_exposed_port(ContainerPort::Tcp(26648))
             .with_exposed_port(ContainerPort::Tcp(26649))
             .with_exposed_port(ContainerPort::Tcp(26650))
-            .with_mount(Mount::bind_mount(nilchain_config_path, "/opt/nilchaind-configs"))
-            .with_cmd(["-c", "cp -r /opt/nilchaind-configs /opt/nilchaind && nilchaind start --home /opt/nilchaind"])
+            .with_env_var("NILCHAIND_CONSENSUS_TIMEOUT_COMMIT", "200ms")
             .start()
             .await
             .expect("failed to start nilchain");
