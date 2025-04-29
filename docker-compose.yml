@@ -12,4 +12,8 @@ services:
     image: ghcr.io/nillionnetwork/nilchain-devnet:v0.1.0
     restart: unless-stopped
     shm_size: 128mb
+    ports:
+      - 26648:26648 # JSON RPC
+      - 26649:26649 # gRPC
+      - 26650:26650 # REST
 
