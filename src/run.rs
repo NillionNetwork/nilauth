@@ -14,6 +14,7 @@ use chrono::Utc;
 use nillion_chain_client::tx::DefaultPaymentTransactionRetriever;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use tokio::signal;
 use tokio::{join, net::TcpListener};
 use tracing::info;
 
@@ -90,6 +91,28 @@ async fn serve(
         .await
         .context("failed to bind to endpoint")?;
     axum::serve(listener, router)
+        .with_graceful_shutdown(shutdown_signal())
         .await
         .context("failed to serve")
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+    info!("Received shutdown signal");
 }
