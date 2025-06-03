@@ -5,7 +5,7 @@ use crate::{
 };
 use axum::extract::State;
 use chrono::{DateTime, Utc};
-use nillion_chain_client::tx::PaymentTransactionRetriever;
+use nilauth_client::nilchain_client::tx::PaymentTransactionRetriever;
 use nillion_nucs::k256::SecretKey;
 use rust_decimal::Decimal;
 use std::{sync::Arc, time::Duration};

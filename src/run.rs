@@ -11,7 +11,7 @@ use axum_prometheus::{
     metrics_exporter_prometheus::PrometheusBuilder, EndpointLabel, PrometheusMetricLayerBuilder,
 };
 use chrono::Utc;
-use nillion_chain_client::tx::DefaultPaymentTransactionRetriever;
+use nilauth_client::nilchain_client::tx::DefaultPaymentTransactionRetriever;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::signal;
