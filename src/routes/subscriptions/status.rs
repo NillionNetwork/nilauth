@@ -1,24 +1,23 @@
+use crate::db::subscriptions::BlindModule;
 use crate::routes::Json;
-use crate::signed::{SignedRequest, VerificationError};
 use crate::{routes::RequestHandlerError, state::SharedState};
+use axum::extract::Query;
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
 use chrono::{DateTime, Utc};
+use nillion_nucs::k256::PublicKey;
 use serde::{Deserialize, Serialize};
 use strum::EnumDiscriminants;
 use tracing::error;
 
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Payload {
-    #[allow(dead_code)]
+#[derive(Deserialize)]
+pub(crate) struct Request {
     #[serde(with = "hex::serde")]
-    nonce: [u8; 16],
+    pub(crate) public_key: [u8; 33],
 
-    #[serde(with = "chrono::serde::ts_seconds")]
-    expires_at: DateTime<Utc>,
+    pub(crate) blind_module: BlindModule,
 }
 
 #[derive(Debug, Serialize)]
@@ -38,18 +37,14 @@ pub(crate) struct Subscription {
 
 pub(crate) async fn handler(
     state: SharedState,
-    Json(request): Json<SignedRequest>,
+    request: Query<Request>,
 ) -> Result<Json<SubscriptionStatusResponse>, HandlerError> {
-    let decoded_payload: Payload = serde_json::from_slice(&request.payload)
-        .map_err(|e| HandlerError::MalformedPayload(e.to_string()))?;
-    if decoded_payload.expires_at <= state.services.time.current_time() {
-        return Err(HandlerError::PayloadExpired);
-    }
-    let public_key = request.verify()?;
+    let public_key = PublicKey::from_sec1_bytes(&request.public_key)
+        .map_err(|_| HandlerError::InvalidPublicKey)?;
     let expires_at = state
         .databases
-        .accounts
-        .find_subscription_end(&public_key)
+        .subscriptions
+        .find_subscription_end(&public_key, &request.blind_module)
         .await
         .map_err(|e| {
             error!("Subscription lookup failed: {e}");
@@ -72,38 +67,14 @@ pub(crate) async fn handler(
 pub(crate) enum HandlerError {
     Internal,
     InvalidPublicKey,
-    InvalidSignature,
-    MalformedPayload(String),
-    PayloadExpired,
-    SignatureVerification,
-}
-
-impl From<VerificationError> for HandlerError {
-    fn from(e: VerificationError) -> Self {
-        match e {
-            VerificationError::InvalidPublicKey => Self::InvalidPublicKey,
-            VerificationError::InvalidSignature => Self::InvalidSignature,
-            VerificationError::SignatureVerification => Self::SignatureVerification,
-        }
-    }
 }
 
 impl IntoResponse for HandlerError {
     fn into_response(self) -> Response {
         let discriminant = HandlerErrorDiscriminants::from(&self);
         let (code, message) = match self {
-            Self::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()),
-            Self::InvalidPublicKey => (StatusCode::BAD_REQUEST, "invalid public key".into()),
-            Self::InvalidSignature => (StatusCode::BAD_REQUEST, "invalid signature".into()),
-            Self::MalformedPayload(reason) => (
-                StatusCode::BAD_REQUEST,
-                format!("malformed payload: {reason}"),
-            ),
-            Self::PayloadExpired => (StatusCode::BAD_REQUEST, "payload expired".into()),
-            Self::SignatureVerification => (
-                StatusCode::BAD_REQUEST,
-                "signature verification failed".into(),
-            ),
+            Self::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "internal error"),
+            Self::InvalidPublicKey => (StatusCode::BAD_REQUEST, "invalid public key"),
         };
         let response = RequestHandlerError::new(message, format!("{discriminant:?}"));
         (code, Json(response)).into_response()
@@ -112,12 +83,11 @@ impl IntoResponse for HandlerError {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::tests::{AppStateBuilder, PublicKeyExt};
     use axum::extract::State;
     use mockall::predicate::eq;
     use nillion_nucs::k256::SecretKey;
-
-    use super::*;
-    use crate::tests::AppStateBuilder;
     use std::time::Duration;
 
     struct Handler {
@@ -134,10 +104,10 @@ mod tests {
     impl Handler {
         async fn invoke(
             self,
-            request: SignedRequest,
+            request: Request,
         ) -> Result<SubscriptionStatusResponse, HandlerError> {
             let state = self.builder.build();
-            let request = Json(request);
+            let request = Query(request);
             handler(State(state), request).await.map(|r| r.0)
         }
     }
@@ -148,6 +118,7 @@ mod tests {
         let key = SecretKey::random(&mut rand::thread_rng());
         let now = Utc::now();
         let timestamp = Utc::now();
+        let blind_module = BlindModule::NilDb;
         handler
             .builder
             .time_service
@@ -156,19 +127,18 @@ mod tests {
 
         handler
             .builder
-            .account_db
+            .subscriptions_db
             .expect_find_subscription_end()
-            .with(eq(key.public_key()))
-            .return_once(move |_| Ok(Some(timestamp)));
+            .with(eq(key.public_key()), eq(blind_module))
+            .return_once(move |_, _| Ok(Some(timestamp)));
 
         let renewal_threshold = Duration::from_secs(30);
         handler.builder.subscription_renewal_threshold = renewal_threshold;
 
-        let payload = Payload {
-            nonce: rand::random(),
-            expires_at: now + Duration::from_secs(60),
+        let request = Request {
+            public_key: key.public_key().to_bytes(),
+            blind_module,
         };
-        let request = SignedRequest::new(&key, &payload);
         let response = handler.invoke(request).await.expect("handler failed");
         assert!(response.subscribed);
         assert_eq!(
@@ -186,6 +156,7 @@ mod tests {
         let key = SecretKey::random(&mut rand::thread_rng());
         let now = Utc::now();
         let timestamp = now - Duration::from_secs(60);
+        let blind_module = BlindModule::NilDb;
         handler
             .builder
             .time_service
@@ -194,40 +165,19 @@ mod tests {
 
         handler
             .builder
-            .account_db
+            .subscriptions_db
             .expect_find_subscription_end()
-            .with(eq(key.public_key()))
-            .return_once(move |_| Ok(Some(timestamp)));
+            .with(eq(key.public_key()), eq(blind_module))
+            .return_once(move |_, _| Ok(Some(timestamp)));
 
-        let payload = Payload {
-            nonce: rand::random(),
-            expires_at: now + Duration::from_secs(60),
+        let request = Request {
+            public_key: key.public_key().to_bytes(),
+            blind_module,
         };
-        let request = SignedRequest::new(&key, &payload);
         let response = handler.invoke(request).await.expect("handler failed");
         assert!(!response.subscribed);
         response
             .details
             .expect("subscription should still be returned");
-    }
-
-    #[tokio::test]
-    async fn request_expired() {
-        let mut handler = Handler::default();
-        let key = SecretKey::random(&mut rand::thread_rng());
-        let now = Utc::now();
-        handler
-            .builder
-            .time_service
-            .expect_current_time()
-            .returning(move || now);
-
-        let payload = Payload {
-            nonce: rand::random(),
-            expires_at: now - Duration::from_secs(60),
-        };
-        let request = SignedRequest::new(&key, &payload);
-        let err = handler.invoke(request).await.expect_err("handler failed");
-        assert!(matches!(err, HandlerError::PayloadExpired));
     }
 }

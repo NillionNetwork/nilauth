@@ -1,6 +1,8 @@
-use crate::routes::payments::cost::GetCostResponse;
+use crate::db::subscriptions::BlindModule;
 use crate::routes::Json;
-use crate::{db::account::CreditPaymentError, routes::RequestHandlerError, state::SharedState};
+use crate::{
+    db::subscriptions::CreditPaymentError, routes::RequestHandlerError, state::SharedState,
+};
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
@@ -36,6 +38,8 @@ struct Payload {
 
     #[serde(with = "hex::serde")]
     service_public_key: Vec<u8>,
+
+    blind_module: BlindModule,
 }
 
 pub(crate) async fn handler(
@@ -62,8 +66,13 @@ pub(crate) async fn handler(
         return Err(HandlerError::HashMismatch);
     }
     // Make sure they paid enough
-    match crate::routes::payments::cost::handler(state.clone()).await {
-        Ok(Json(GetCostResponse { cost_unils })) => {
+    match state
+        .services
+        .subscription_cost
+        .blind_module_cost(decoded_payload.blind_module)
+        .await
+    {
+        Ok(cost_unils) => {
             let unil_paid = Decimal::from(tx.amount.to_unil());
             let minimum_payment = Decimal::from(cost_unils)
                 * (Decimal::from(1) - state.parameters.subscription_cost_slippage);
@@ -83,8 +92,8 @@ pub(crate) async fn handler(
 
     state
         .databases
-        .accounts
-        .credit_payment(&tx_hash, public_key)
+        .subscriptions
+        .credit_payment(&tx_hash, public_key, &decoded_payload.blind_module)
         .await?;
     Ok(Json(()))
 }
@@ -92,7 +101,7 @@ pub(crate) async fn handler(
 async fn store_invalid_payment(state: &SharedState, tx_hash: &str, public_key: PublicKey) {
     let result = state
         .databases
-        .accounts
+        .subscriptions
         .store_invalid_payment(tx_hash, public_key)
         .await;
     match result {
@@ -227,9 +236,11 @@ mod tests {
     async fn validate_valid_payment() {
         let tx_hash = "0xdeadbeef".to_string();
         let mut handler = Handler::default();
+        let blind_module = BlindModule::NilDb;
         let payload = Payload {
             nonce: rand::random(),
             service_public_key: handler.builder.public_key(),
+            blind_module,
         };
         let payload = serde_json::to_vec(&payload).expect("failed to serialize");
         let payload_hash = Sha256::digest(&payload);
@@ -246,15 +257,20 @@ mod tests {
         let public_key = SecretKey::random(&mut rand::thread_rng()).public_key();
         handler
             .builder
-            .account_db
+            .subscriptions_db
             .expect_credit_payment()
-            .with(eq(tx_hash.clone()), eq(public_key.clone()))
-            .return_once(move |_, _| Ok(()));
+            .with(
+                eq(tx_hash.clone()),
+                eq(public_key.clone()),
+                eq(blind_module),
+            )
+            .return_once(move |_, _, _| Ok(()));
         handler
             .builder
-            .token_price_service
-            .expect_nil_token_price()
-            .return_once(|| Ok(1.into()));
+            .subscription_costs_service
+            .expect_blind_module_cost()
+            .with(eq(blind_module))
+            .return_once(|_| Ok(1));
         handler
             .invoke(ValidatePaymentRequest {
                 tx_hash,
@@ -269,9 +285,11 @@ mod tests {
     async fn validate_underpayment() {
         let tx_hash = "0xdeadbeef".to_string();
         let mut handler = Handler::default();
+        let blind_module = BlindModule::NilDb;
         let payload = Payload {
             nonce: rand::random(),
             service_public_key: handler.builder.public_key(),
+            blind_module,
         };
         let payload = serde_json::to_vec(&payload).expect("failed to serialize");
         let payload_hash = Sha256::digest(&payload);
@@ -280,7 +298,7 @@ mod tests {
             Ok(PaymentTransaction {
                 resource: payload_hash.to_vec(),
                 from_address: "".into(),
-                // Pay one unil less than 97% of the cost
+                // Pay one unil less than 99% of the cost
                 amount: TokenAmount::Unil(989_999),
             }),
         );
@@ -288,9 +306,10 @@ mod tests {
         let public_key = SecretKey::random(&mut rand::thread_rng()).public_key();
         handler
             .builder
-            .token_price_service
-            .expect_nil_token_price()
-            .return_once(|| Ok(1.into()));
+            .subscription_costs_service
+            .expect_blind_module_cost()
+            .with(eq(blind_module))
+            .return_once(|_| Ok(1_000_000));
         handler
             .invoke(ValidatePaymentRequest {
                 tx_hash,
@@ -308,6 +327,7 @@ mod tests {
         let payload = Payload {
             nonce: rand::random(),
             service_public_key: handler.builder.public_key(),
+            blind_module: BlindModule::NilDb,
         };
         let payload = serde_json::to_vec(&payload).expect("failed to serialize");
         let payload_hash = Sha256::digest(b"hi mom");
@@ -323,7 +343,7 @@ mod tests {
 
         handler
             .builder
-            .account_db
+            .subscriptions_db
             .expect_store_invalid_payment()
             .with(eq(tx_hash.clone()), eq(public_key.clone()))
             .return_once(|_, _| Ok(()));
@@ -345,6 +365,7 @@ mod tests {
         let payload = Payload {
             nonce: rand::random(),
             service_public_key: handler.builder.public_key(),
+            blind_module: BlindModule::NilDb,
         };
         let payload = serde_json::to_vec(&payload).expect("failed to serialize");
         handler.expect_tx_retrieve(tx_hash.clone(), Err(RetrieveError::NotCommitted));

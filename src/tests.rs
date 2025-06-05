@@ -1,6 +1,6 @@
-use crate::db::account::MockAccountDb;
 use crate::db::revocations::MockRevocationDb;
-use crate::services::prices::MockTokenPriceService;
+use crate::db::subscriptions::MockSubscriptionDb;
+use crate::services::subscription_cost::MockSubscriptionCostService;
 use crate::state::{AppState, Databases, Parameters, Services};
 use crate::time::MockTimeService;
 use async_trait::async_trait;
@@ -27,10 +27,9 @@ pub(crate) struct AppStateBuilder {
     pub(crate) secret_key: SecretKey,
     pub(crate) tx_retriever: MockPaymentRetriever,
     pub(crate) time_service: MockTimeService,
-    pub(crate) token_price_service: MockTokenPriceService,
-    pub(crate) account_db: MockAccountDb,
+    pub(crate) subscription_costs_service: MockSubscriptionCostService,
+    pub(crate) subscriptions_db: MockSubscriptionDb,
     pub(crate) revocation_db: MockRevocationDb,
-    pub(crate) subscription_cost: Decimal,
     pub(crate) subscription_renewal_threshold: Duration,
 }
 
@@ -40,33 +39,23 @@ impl Default for AppStateBuilder {
             secret_key: SecretKey::random(&mut rand::thread_rng()),
             tx_retriever: Default::default(),
             time_service: Default::default(),
-            token_price_service: Default::default(),
-            account_db: Default::default(),
+            subscription_costs_service: Default::default(),
+            subscriptions_db: Default::default(),
             revocation_db: Default::default(),
-            subscription_cost: 1.into(),
             subscription_renewal_threshold: Duration::from_secs(60),
         }
     }
 }
 
 impl AppStateBuilder {
-    pub(crate) fn with_expectations<F>(mut self, callback: F) -> Self
-    where
-        F: FnOnce(&mut Self),
-    {
-        callback(&mut self);
-        self
-    }
-
     pub(crate) fn build(self) -> Arc<AppState> {
         let Self {
             secret_key,
             tx_retriever,
             time_service,
-            token_price_service,
-            account_db,
+            subscription_costs_service,
+            subscriptions_db,
             revocation_db,
-            subscription_cost,
             subscription_renewal_threshold,
         } = self;
 
@@ -74,7 +63,6 @@ impl AppStateBuilder {
             parameters: Parameters {
                 secret_key,
                 started_at: Utc::now(),
-                subscription_cost,
                 // 0.01
                 subscription_cost_slippage: Decimal::new(1, 2),
                 subscription_renewal_threshold,
@@ -82,10 +70,10 @@ impl AppStateBuilder {
             services: Services {
                 tx: Box::new(tx_retriever),
                 time: Box::new(time_service),
-                prices: Box::new(token_price_service),
+                subscription_cost: Box::new(subscription_costs_service),
             },
             databases: Databases {
-                accounts: Box::new(account_db),
+                subscriptions: Box::new(subscriptions_db),
                 revocations: Arc::new(revocation_db),
             },
         })

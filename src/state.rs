@@ -1,6 +1,6 @@
 use crate::{
-    db::{account::AccountDb, revocations::RevocationDb},
-    services::prices::TokenPriceService,
+    db::{revocations::RevocationDb, subscriptions::SubscriptionDb},
+    services::subscription_cost::SubscriptionCostService,
     time::TimeService,
 };
 use axum::extract::State;
@@ -20,14 +20,14 @@ pub struct Services {
     /// A service that provides the current time.
     pub time: Box<dyn TimeService>,
 
-    /// A service that gets the current token price.
-    pub prices: Box<dyn TokenPriceService>,
+    /// A service to compute a subscription's cost.
+    pub subscription_cost: Box<dyn SubscriptionCostService>,
 }
 
 /// Database interfaces used by the application.
 pub struct Databases {
-    /// The account database.
-    pub accounts: Box<dyn AccountDb>,
+    /// The subscriptions database.
+    pub subscriptions: Box<dyn SubscriptionDb>,
 
     /// The revocations database.
     pub revocations: Arc<dyn RevocationDb>,
@@ -51,9 +51,6 @@ pub struct Parameters {
 
     /// The timestamp at which nilauth was started.
     pub started_at: DateTime<Utc>,
-
-    /// Subscription cost, in dollars.
-    pub subscription_cost: Decimal,
 
     /// The allowed slippage in the range 0-1.
     pub subscription_cost_slippage: Decimal,

@@ -1,3 +1,4 @@
+use crate::db::subscriptions::BlindModule;
 use crate::routes::Json;
 use crate::signed::{SignedRequest, VerificationError};
 use crate::{routes::RequestHandlerError, state::SharedState};
@@ -27,6 +28,9 @@ struct SignablePayload {
     // Our public key, to ensure this request can't be redirected to another authority service.
     #[serde(with = "hex::serde")]
     target_public_key: [u8; 33],
+
+    // The blind_module we want a token for.
+    blind_module: BlindModule,
 }
 
 #[derive(Debug, Serialize)]
@@ -53,8 +57,8 @@ pub(crate) async fn handler(
     let public_key = request.verify()?;
     let expires_at = match state
         .databases
-        .accounts
-        .find_subscription_end(&public_key)
+        .subscriptions
+        .find_subscription_end(&public_key, &payload.blind_module)
         .await
     {
         Ok(Some(timestamp)) => {
@@ -72,9 +76,14 @@ pub(crate) async fn handler(
         }
     };
 
+    let segment = match payload.blind_module {
+        BlindModule::NilAi => "ai",
+        BlindModule::NilDb => "db",
+    };
+
     info!("Minting token for {requestor_did}, expires at '{expires_at}'");
     let token = NucTokenBuilder::delegation([])
-        .command(["nil"])
+        .command(["nil", segment])
         .subject(requestor_did.clone())
         .audience(requestor_did)
         .expires_at(expires_at)
@@ -181,12 +190,17 @@ mod tests {
             handler(State(state), request).await.map(|r| r.0)
         }
 
-        fn expect_subscription_ends(&mut self, public_key: PublicKey, time: Option<DateTime<Utc>>) {
+        fn expect_subscription_ends(
+            &mut self,
+            public_key: PublicKey,
+            time: Option<DateTime<Utc>>,
+            blind_module: BlindModule,
+        ) {
             self.builder
-                .account_db
+                .subscriptions_db
                 .expect_find_subscription_end()
-                .with(eq(public_key))
-                .return_once(move |_| Ok(time));
+                .with(eq(public_key), eq(blind_module))
+                .return_once(move |_, _| Ok(time));
         }
     }
 
@@ -195,14 +209,19 @@ mod tests {
         let mut handler = Handler::default();
         let client_key = SecretKey::random(&mut rand::thread_rng());
         let now = Utc::now();
-        handler
-            .expect_subscription_ends(client_key.public_key(), Some(now + Duration::from_secs(60)));
+        let blind_module = BlindModule::NilDb;
+        handler.expect_subscription_ends(
+            client_key.public_key(),
+            Some(now + Duration::from_secs(60)),
+            blind_module,
+        );
         handler.builder.set_current_time(now);
 
         let payload = SignablePayload {
             nonce: [0; 16],
             expires_at: now + Duration::from_secs(1),
             target_public_key: handler.builder.public_key().try_into().unwrap(),
+            blind_module,
         };
         let request = SignedRequest::new(&client_key, &payload);
         let response = handler.invoke(request).await.expect("failed to mint token");
@@ -216,12 +235,14 @@ mod tests {
     async fn no_subscription() {
         let mut handler = Handler::default();
         let client_key = SecretKey::random(&mut rand::thread_rng());
-        handler.expect_subscription_ends(client_key.public_key(), None);
+        let blind_module = BlindModule::NilDb;
+        handler.expect_subscription_ends(client_key.public_key(), None, blind_module);
 
         let payload = SignablePayload {
             nonce: [0; 16],
             expires_at: Utc::now(),
             target_public_key: handler.builder.public_key().try_into().unwrap(),
+            blind_module,
         };
         let request = SignedRequest::new(&client_key, &payload);
         let err = handler
@@ -236,14 +257,19 @@ mod tests {
         let mut handler = Handler::default();
         let client_key = SecretKey::random(&mut rand::thread_rng());
         let now = Utc::now();
-        handler
-            .expect_subscription_ends(client_key.public_key(), Some(now - Duration::from_secs(1)));
+        let blind_module = BlindModule::NilDb;
+        handler.expect_subscription_ends(
+            client_key.public_key(),
+            Some(now - Duration::from_secs(1)),
+            blind_module,
+        );
         handler.builder.set_current_time(now);
 
         let payload = &SignablePayload {
             nonce: [0; 16],
             expires_at: now + Duration::from_secs(1),
             target_public_key: handler.builder.public_key().try_into().unwrap(),
+            blind_module,
         };
         let request = SignedRequest::new(&client_key, &payload);
         let err = handler
@@ -261,10 +287,12 @@ mod tests {
     async fn invalid_signature(#[case] modifier: InputModifier) {
         let handler = Handler::default();
         let client_key = SecretKey::random(&mut rand::thread_rng());
+        let blind_module = BlindModule::NilDb;
         let payload = SignablePayload {
             nonce: [0; 16],
             expires_at: Utc::now(),
             target_public_key: handler.builder.public_key().try_into().unwrap(),
+            blind_module,
         };
         let mut request = SignedRequest::new(&client_key, &payload);
         match modifier {
@@ -273,6 +301,7 @@ mod tests {
                     nonce: [1; 16],
                     expires_at: Utc::now(),
                     target_public_key: handler.builder.public_key().try_into().unwrap(),
+                    blind_module,
                 })
                 .unwrap()
                 .into()
@@ -291,6 +320,7 @@ mod tests {
             nonce: [0; 16],
             expires_at: Utc::now() - Duration::from_secs(3600),
             target_public_key: handler.builder.public_key().try_into().unwrap(),
+            blind_module: BlindModule::NilDb,
         };
         let request = SignedRequest::new(&client_key, &payload);
         let err = handler
@@ -308,6 +338,7 @@ mod tests {
             nonce: [0; 16],
             expires_at: Utc::now(),
             target_public_key: [0; 33],
+            blind_module: BlindModule::NilDb,
         };
         let request = SignedRequest::new(&client_key, &payload);
         let err = handler

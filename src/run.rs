@@ -1,8 +1,9 @@
 use crate::cleanup::RevokedTokenCleaner;
 use crate::config::Config;
 use crate::db::revocations::PostgresRevocationDb;
-use crate::db::{account::PostgresAccountDb, PostgresPool};
-use crate::services::prices::CoinGeckoTokenPriceService;
+use crate::db::{subscriptions::PostgresSubscriptionDb, PostgresPool};
+use crate::services::subscription_cost::DefaultSubscriptionCostService;
+use crate::services::token_price::CoinGeckoTokenPriceService;
 use crate::state::{AppState, Databases, Parameters, Services};
 use crate::time::DefaultTimeService;
 use anyhow::Context;
@@ -20,20 +21,24 @@ use tracing::info;
 
 pub async fn run(config: Config) -> anyhow::Result<()> {
     let secret_key = config.private_key.load_key()?;
+    let token_price_service = Arc::new(CoinGeckoTokenPriceService::new(
+        config.payments.token_price,
+    )?);
     let services = Services {
         tx: Box::new(DefaultPaymentTransactionRetriever::new(
             &config.payments.nilchain_url,
         )?),
         time: Box::new(DefaultTimeService),
-        prices: Box::new(CoinGeckoTokenPriceService::new(
-            config.payments.token_price,
-        )?),
+        subscription_cost: Box::new(DefaultSubscriptionCostService::new(
+            token_price_service,
+            config.payments.subscriptions.dollar_cost.clone(),
+        )),
     };
     let pool = PostgresPool::new(&config.postgres.url)
         .await
         .context("failed to create database connection")?;
     let databases = Databases {
-        accounts: Box::new(PostgresAccountDb::new(
+        subscriptions: Box::new(PostgresSubscriptionDb::new(
             pool.clone(),
             config.payments.subscriptions.clone(),
         )),
@@ -43,7 +48,6 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         parameters: Parameters {
             secret_key,
             started_at: Utc::now(),
-            subscription_cost: config.payments.subscriptions.dollar_cost,
             subscription_cost_slippage: config.payments.subscriptions.payment_slippage,
             subscription_renewal_threshold: config.payments.subscriptions.renewal_threshold,
         },
