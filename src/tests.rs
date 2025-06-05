@@ -6,7 +6,9 @@ use crate::time::MockTimeService;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use mockall::mock;
-use nillion_chain_client::tx::{PaymentTransaction, PaymentTransactionRetriever, RetrieveError};
+use nilauth_client::nilchain_client::tx::{
+    PaymentTransaction, PaymentTransactionRetriever, RetrieveError,
+};
 use nillion_nucs::k256::{PublicKey, SecretKey};
 use rust_decimal::Decimal;
 use std::sync::Arc;

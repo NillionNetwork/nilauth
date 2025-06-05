@@ -52,7 +52,7 @@ where
         };
         let token = state
             .validator
-            .validate(token, parameters)
+            .validate(token, parameters, &Default::default())
             .map_err(|e| make_unauthorized(format!("invalid token: {e}")))?;
         Ok(Self(token))
     }

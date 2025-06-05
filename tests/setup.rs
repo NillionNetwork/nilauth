@@ -3,7 +3,7 @@ use axum::http::StatusCode;
 use axum::routing::get;
 use axum::Router;
 use axum::{extract::Query, Json};
-use nillion_chain_client::{client::NillionChainClient, key::NillionChainPrivateKey};
+use nilauth_client::nilchain_client::{client::NillionChainClient, key::NillionChainPrivateKey};
 use rstest::fixture;
 use serde::Deserialize;
 use serde_json::json;

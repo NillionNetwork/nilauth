@@ -6,7 +6,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use metrics::counter;
-use nillion_chain_client::tx::RetrieveError;
+use nilauth_client::nilchain_client::tx::RetrieveError;
 use nillion_nucs::k256::{
     sha2::{Digest, Sha256},
     PublicKey,
@@ -195,7 +195,7 @@ mod tests {
     use crate::tests::{random_public_key, AppStateBuilder, PublicKeyExt};
     use axum::extract::State;
     use mockall::predicate::eq;
-    use nillion_chain_client::{transactions::TokenAmount, tx::PaymentTransaction};
+    use nilauth_client::nilchain_client::{transactions::TokenAmount, tx::PaymentTransaction};
     use nillion_nucs::k256::SecretKey;
 
     #[derive(Default)]
