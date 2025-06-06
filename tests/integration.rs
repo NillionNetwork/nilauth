@@ -19,7 +19,7 @@ async fn pay_and_mint(nilauth: NilAuth) {
     client
         .pay_subscription(
             &mut *nilauth.nilchain_client.lock().await,
-            &key,
+            &key.public_key(),
             blind_module,
         )
         .await
@@ -68,7 +68,7 @@ async fn pay_all_modules(nilauth: NilAuth) {
         client
             .pay_subscription(
                 &mut *nilauth.nilchain_client.lock().await,
-                &key,
+                &key.public_key(),
                 blind_module,
             )
             .await
@@ -113,7 +113,7 @@ async fn pay_too_soon(nilauth: NilAuth) {
     client
         .pay_subscription(
             &mut *nilauth.nilchain_client.lock().await,
-            &key,
+            &key.public_key(),
             blind_module,
         )
         .await
@@ -123,7 +123,7 @@ async fn pay_too_soon(nilauth: NilAuth) {
     let err = client
         .pay_subscription(
             &mut *nilauth.nilchain_client.lock().await,
-            &key,
+            &key.public_key(),
             blind_module,
         )
         .await
@@ -142,7 +142,7 @@ async fn list_unrevoked(nilauth: NilAuth) {
     client
         .pay_subscription(
             &mut *nilauth.nilchain_client.lock().await,
-            &key,
+            &key.public_key(),
             blind_module,
         )
         .await
@@ -168,7 +168,7 @@ async fn revoke(nilauth: NilAuth) {
     client
         .pay_subscription(
             &mut *nilauth.nilchain_client.lock().await,
-            &key,
+            &key.public_key(),
             blind_module,
         )
         .await
