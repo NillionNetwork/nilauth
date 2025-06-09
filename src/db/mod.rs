@@ -1,8 +1,8 @@
 use sqlx::{Pool, Postgres};
 use tracing::info;
 
-pub(crate) mod account;
 pub(crate) mod revocations;
+pub(crate) mod subscriptions;
 
 #[derive(Clone)]
 pub(crate) struct PostgresPool(Pool<Postgres>);

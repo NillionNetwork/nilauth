@@ -1,6 +1,7 @@
 use chrono::Utc;
 use nilauth_client::client::{
-    DefaultNilauthClient, NilauthClient, PaySubscriptionError, RequestTokenError,
+    BlindModule, DefaultNilauthClient, NilauthClient, PaySubscriptionError, RequestTokenError,
+    RevokeTokenArgs,
 };
 use nillion_nucs::{envelope::NucTokenEnvelope, k256::SecretKey, token::Did};
 use rstest::rstest;
@@ -14,18 +15,23 @@ mod setup;
 async fn pay_and_mint(nilauth: NilAuth) {
     let client = DefaultNilauthClient::new(nilauth.endpoint).expect("failed to build client");
     let key = SecretKey::random(&mut rand::thread_rng());
+    let blind_module = BlindModule::NilDb;
     client
-        .pay_subscription(&mut *nilauth.nilchain_client.lock().await, &key)
+        .pay_subscription(
+            &mut *nilauth.nilchain_client.lock().await,
+            &key.public_key(),
+            blind_module,
+        )
         .await
         .expect("failed to pay subscription");
     let subscription = client
-        .subscription_status(&key)
+        .subscription_status(&key.public_key(), blind_module)
         .await
         .expect("failed to get subscription status");
     assert!(subscription.subscribed);
     subscription.details.expect("no subscription information");
     let token = client
-        .request_token(&key)
+        .request_token(&key, blind_module)
         .await
         .expect("failed to mint token");
     let token = NucTokenEnvelope::decode(&token)
@@ -45,6 +51,7 @@ async fn pay_and_mint(nilauth: NilAuth) {
                 .unwrap()
         )
     );
+    assert_eq!(token.command, ["nil", "db"].into());
 
     // Calculate what the expiration time could be and give it a bit of a buffer
     let minimum_expiration_time =
@@ -54,11 +61,28 @@ async fn pay_and_mint(nilauth: NilAuth) {
 
 #[rstest]
 #[tokio::test]
+async fn pay_all_modules(nilauth: NilAuth) {
+    let client = DefaultNilauthClient::new(nilauth.endpoint).expect("failed to build client");
+    let key = SecretKey::random(&mut rand::thread_rng());
+    for blind_module in [BlindModule::NilDb, BlindModule::NilAi] {
+        client
+            .pay_subscription(
+                &mut *nilauth.nilchain_client.lock().await,
+                &key.public_key(),
+                blind_module,
+            )
+            .await
+            .expect("failed to pay subscription");
+    }
+}
+
+#[rstest]
+#[tokio::test]
 async fn subscription_status_without_subscription(nilauth: NilAuth) {
     let client = DefaultNilauthClient::new(nilauth.endpoint).expect("failed to build client");
     let key = SecretKey::random(&mut rand::thread_rng());
     let subscription = client
-        .subscription_status(&key)
+        .subscription_status(&key.public_key(), BlindModule::NilDb)
         .await
         .expect("failed to get subscription status");
     assert!(!subscription.subscribed);
@@ -71,7 +95,7 @@ async fn mint_without_paying(nilauth: NilAuth) {
     let client = DefaultNilauthClient::new(nilauth.endpoint).expect("failed to build client");
     let key = SecretKey::random(&mut rand::thread_rng());
     let err = client
-        .request_token(&key)
+        .request_token(&key, BlindModule::NilDb)
         .await
         .expect_err("token minted successfully");
     let RequestTokenError::Request(err) = err else {
@@ -85,14 +109,23 @@ async fn mint_without_paying(nilauth: NilAuth) {
 async fn pay_too_soon(nilauth: NilAuth) {
     let client = DefaultNilauthClient::new(nilauth.endpoint).expect("failed to build client");
     let key = SecretKey::random(&mut rand::thread_rng());
+    let blind_module = BlindModule::NilDb;
     client
-        .pay_subscription(&mut *nilauth.nilchain_client.lock().await, &key)
+        .pay_subscription(
+            &mut *nilauth.nilchain_client.lock().await,
+            &key.public_key(),
+            blind_module,
+        )
         .await
         .expect("failed to pay subscription");
 
     // Pay again, this should fail because we just started our subscription
     let err = client
-        .pay_subscription(&mut *nilauth.nilchain_client.lock().await, &key)
+        .pay_subscription(
+            &mut *nilauth.nilchain_client.lock().await,
+            &key.public_key(),
+            blind_module,
+        )
         .await
         .expect_err("subscription payment succeeded");
     let PaySubscriptionError::CannotRenewYet(_) = err else {
@@ -105,11 +138,19 @@ async fn pay_too_soon(nilauth: NilAuth) {
 async fn list_unrevoked(nilauth: NilAuth) {
     let client = DefaultNilauthClient::new(nilauth.endpoint).expect("failed to build client");
     let key = SecretKey::random(&mut rand::thread_rng());
+    let blind_module = BlindModule::NilDb;
     client
-        .pay_subscription(&mut *nilauth.nilchain_client.lock().await, &key)
+        .pay_subscription(
+            &mut *nilauth.nilchain_client.lock().await,
+            &key.public_key(),
+            blind_module,
+        )
         .await
         .expect("failed to pay subscription");
-    let token = client.request_token(&key).await.expect("failed to mint");
+    let token = client
+        .request_token(&key, blind_module)
+        .await
+        .expect("failed to mint");
     let token = NucTokenEnvelope::decode(&token).expect("invalid token");
     let revocations = client
         .lookup_revoked_tokens(&token)
@@ -123,17 +164,31 @@ async fn list_unrevoked(nilauth: NilAuth) {
 async fn revoke(nilauth: NilAuth) {
     let client = DefaultNilauthClient::new(nilauth.endpoint).expect("failed to build client");
     let key = SecretKey::random(&mut rand::thread_rng());
+    let blind_module = BlindModule::NilDb;
     client
-        .pay_subscription(&mut *nilauth.nilchain_client.lock().await, &key)
+        .pay_subscription(
+            &mut *nilauth.nilchain_client.lock().await,
+            &key.public_key(),
+            blind_module,
+        )
         .await
         .expect("failed to pay subscription");
 
     // Get a token, create a new one and revoke it
-    let token = client.request_token(&key).await.expect("failed to mint");
+    let token = client
+        .request_token(&key, blind_module)
+        .await
+        .expect("failed to mint");
     let token = NucTokenEnvelope::decode(&token).expect("invalid token");
 
     client
-        .revoke_token(&token, &key)
+        .revoke_token(
+            RevokeTokenArgs {
+                auth_token: token.clone(),
+                revocable_token: token.clone(),
+            },
+            &key,
+        )
         .await
         .expect("failed to revoke");
 

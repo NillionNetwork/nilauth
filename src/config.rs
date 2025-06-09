@@ -103,12 +103,22 @@ pub struct SubscriptionConfig {
     #[serde(rename = "length_seconds")]
     pub length: Duration,
 
-    /// The cost of the subscription, in dollars.
-    pub dollar_cost: Decimal,
+    /// The cost of each blind module, in dollars.
+    pub dollar_cost: BlindModuleCosts,
 
     /// The allowed slippage in the payment, in the range 0-1.
     #[serde(default = "default_slippage")]
     pub payment_slippage: Decimal,
+}
+
+/// The costs of blind module subscriptions.
+#[derive(Clone, Deserialize)]
+pub struct BlindModuleCosts {
+    /// The cost for a nildb subscription, in dollars.
+    pub nildb: Decimal,
+
+    /// The cost for a nilai subscription, in dollars.
+    pub nilai: Decimal,
 }
 
 /// The token price configuration.

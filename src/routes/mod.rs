@@ -9,7 +9,7 @@ use axum::{
 use convert_case::{Case, Casing};
 use nillion_nucs::{token::Did, validator::NucValidator};
 use serde::Serialize;
-use std::sync::Arc;
+use std::{ops::Deref, sync::Arc};
 
 pub(crate) mod about;
 pub(crate) mod health;
@@ -42,10 +42,7 @@ pub fn build_router(state: AppState) -> Router {
                 .route("/payments/cost", get(payments::cost::handler))
                 .route("/revocations/revoke", post(revocations::revoke::handler))
                 .route("/revocations/lookup", post(revocations::lookup::handler))
-                .route(
-                    "/subscriptions/status",
-                    post(subscriptions::status::handler),
-                ),
+                .route("/subscriptions/status", get(subscriptions::status::handler)),
         )
         .with_state(state)
         .layer(Extension(validator_state))
@@ -91,6 +88,14 @@ where
                 Err((rejection.status(), axum::Json(payload)))
             }
         }
+    }
+}
+
+impl<T> Deref for Json<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 

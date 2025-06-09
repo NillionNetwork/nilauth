@@ -4,34 +4,53 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use hex::ToHex;
 use nillion_nucs::k256::PublicKey;
+use serde::{Deserialize, Serialize};
 use sqlx::{prelude::FromRow, query, query_as, Executor, Postgres};
-use std::ops::DerefMut;
+use std::{fmt, ops::DerefMut};
 use tracing::{error, info};
 
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
-pub(crate) trait AccountDb: Send + Sync + 'static {
+pub(crate) trait SubscriptionDb: Send + Sync + 'static {
     async fn find_subscription_end(
         &self,
         public_key: &PublicKey,
+        blind_module: &BlindModule,
     ) -> sqlx::Result<Option<DateTime<Utc>>>;
 
     async fn credit_payment(
         &self,
         tx_hash: &str,
         public_key: PublicKey,
+        blind_module: &BlindModule,
     ) -> Result<(), CreditPaymentError>;
 
     async fn store_invalid_payment(&self, tx_hash: &str, public_key: PublicKey)
         -> sqlx::Result<()>;
 }
 
-pub(crate) struct PostgresAccountDb {
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum BlindModule {
+    NilAi,
+    NilDb,
+}
+
+impl fmt::Display for BlindModule {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NilDb => write!(f, "nildb"),
+            Self::NilAi => write!(f, "nilai"),
+        }
+    }
+}
+
+pub(crate) struct PostgresSubscriptionDb {
     pool: PostgresPool,
     config: SubscriptionConfig,
 }
 
-impl PostgresAccountDb {
+impl PostgresSubscriptionDb {
     pub(crate) fn new(pool: PostgresPool, config: SubscriptionConfig) -> Self {
         Self { pool, config }
     }
@@ -39,6 +58,7 @@ impl PostgresAccountDb {
     async fn do_find_subscription_end<'a, E>(
         &self,
         public_key: &PublicKey,
+        blind_module: &BlindModule,
         executor: E,
         for_update: bool,
     ) -> sqlx::Result<Option<DateTime<Utc>>>
@@ -52,9 +72,10 @@ impl PostgresAccountDb {
         let public_key: String = public_key.to_sec1_bytes().encode_hex();
         let for_update_suffix = if for_update { " FOR UPDATE" } else { "" };
         let row: Option<Row> = query_as(&format!(
-            "SELECT ends_at FROM subscriptions WHERE public_key = $1{for_update_suffix}"
+            "SELECT ends_at FROM subscriptions WHERE public_key = $1 AND blind_module = $2{for_update_suffix}"
         ))
         .bind(&public_key)
+        .bind(blind_module.to_string())
         .fetch_optional(executor)
         .await?;
         Ok(row.map(|r| r.ends_at))
@@ -62,12 +83,13 @@ impl PostgresAccountDb {
 }
 
 #[async_trait]
-impl AccountDb for PostgresAccountDb {
+impl SubscriptionDb for PostgresSubscriptionDb {
     async fn find_subscription_end(
         &self,
         public_key: &PublicKey,
+        blind_module: &BlindModule,
     ) -> sqlx::Result<Option<DateTime<Utc>>> {
-        self.do_find_subscription_end(public_key, &self.pool.0, false)
+        self.do_find_subscription_end(public_key, blind_module, &self.pool.0, false)
             .await
     }
 
@@ -75,10 +97,11 @@ impl AccountDb for PostgresAccountDb {
         &self,
         tx_hash: &str,
         public_key: PublicKey,
+        blind_module: &BlindModule,
     ) -> Result<(), CreditPaymentError> {
         let mut tx = self.pool.0.begin().await?;
         let subscription_ends_at = self
-            .do_find_subscription_end(&public_key, tx.deref_mut(), true)
+            .do_find_subscription_end(&public_key, blind_module, tx.deref_mut(), true)
             .await?;
         if let Some(ends_at) = subscription_ends_at {
             if ends_at > Utc::now() + self.config.renewal_threshold {
@@ -100,8 +123,9 @@ impl AccountDb for PostgresAccountDb {
             .map(|ends_at| ends_at + self.config.length)
             .unwrap_or(default_ends_at)
             .max(default_ends_at);
-        query("INSERT INTO subscriptions (public_key, ends_at) VALUES ($1, $2) ON CONFLICT(public_key) DO UPDATE SET ends_at = $2")
+        query("INSERT INTO subscriptions (public_key, blind_module, ends_at) VALUES ($1, $2, $3) ON CONFLICT(public_key, blind_module) DO UPDATE SET ends_at = $3")
             .bind(&public_key)
+            .bind(blind_module.to_string())
             .bind(ends_at)
             .execute(tx.deref_mut()).await?;
         tx.commit().await?;
