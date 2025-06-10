@@ -7,6 +7,7 @@ use crate::services::token_price::CoinGeckoTokenPriceService;
 use crate::state::{AppState, Databases, Parameters, Services};
 use crate::time::DefaultTimeService;
 use anyhow::Context;
+use axum::http;
 use axum::{routing::get, Router};
 use axum_prometheus::{
     metrics_exporter_prometheus::PrometheusBuilder, EndpointLabel, PrometheusMetricLayerBuilder,
@@ -17,6 +18,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::signal;
 use tokio::{join, net::TcpListener};
+use tower_http::cors::CorsLayer;
 use tracing::info;
 
 pub async fn run(config: Config) -> anyhow::Result<()> {
@@ -73,7 +75,13 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
                 .expect("failed to install metrics recorder")
         })
         .build_pair();
-    let router = crate::routes::build_router(state).layer(prometheus_layer);
+    let cors = CorsLayer::new()
+        .allow_methods([http::Method::GET, http::Method::POST])
+        .allow_headers([http::header::CONTENT_TYPE])
+        .allow_origin(tower_http::cors::Any);
+    let router = crate::routes::build_router(state)
+        .layer(prometheus_layer)
+        .layer(cors);
     let metrics_router =
         Router::new().route("/metrics", get(|| async move { metrics_handle.render() }));
 

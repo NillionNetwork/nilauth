@@ -28,6 +28,7 @@ thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt"] }
 tokio = { version = "1.44", features = ["rt-multi-thread", "macros", "time", "signal"] }
+tower-http = { version = "0.6", features = ["cors"] }
 
 [dev-dependencies]
 libc = "0.2"
