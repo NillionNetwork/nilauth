@@ -141,6 +141,7 @@ pub(crate) struct RevokedToken {
     pub(crate) token_hash: Vec<u8>,
 
     /// The timestamp at which the token was revoked.
-    #[schema(value_type = u64)]
+    #[serde(with = "chrono::serde::ts_seconds")]
+    #[schema(value_type = u64, examples(crate::docs::epoch_timestamp))]
     pub(crate) revoked_at: DateTime<Utc>,
 }
