@@ -2,16 +2,23 @@ use nillion_nucs::k256::ecdsa::signature::Verifier;
 use nillion_nucs::k256::ecdsa::{Signature, VerifyingKey};
 use nillion_nucs::k256::PublicKey;
 use serde::Deserialize;
+use utoipa::ToSchema;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct SignedRequest {
+    //// The public key for the keypair that signed this request, in hex form.
     #[serde(with = "hex::serde")]
+    #[schema(value_type = String, examples(crate::docs::public_key))]
     pub(crate) public_key: [u8; 33],
 
+    //// The request signature, in hex form.
     #[serde(with = "hex::serde")]
+    #[schema(value_type = String, examples(crate::docs::signature))]
     pub(crate) signature: [u8; 64],
 
+    /// The payload
     #[serde(with = "hex::serde")]
+    #[schema(value_type = String, examples(crate::docs::hex_payload))]
     pub(crate) payload: Vec<u8>,
 }
 

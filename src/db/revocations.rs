@@ -6,6 +6,7 @@ use nillion_nucs::token::ProofHash;
 use serde::Serialize;
 use sqlx::prelude::FromRow;
 use tracing::error;
+use utoipa::ToSchema;
 
 /// A revocations database.
 #[cfg_attr(test, mockall::automock)]
@@ -132,12 +133,14 @@ impl RevocationDb for PostgresRevocationDb {
 }
 
 /// A revoked token.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, ToSchema)]
 pub(crate) struct RevokedToken {
     /// The token hash.
     #[serde(with = "hex::serde")]
+    #[schema(value_type = String, examples(crate::docs::proof_hash))]
     pub(crate) token_hash: Vec<u8>,
 
     /// The timestamp at which the token was revoked.
+    #[schema(value_type = u64)]
     pub(crate) revoked_at: DateTime<Utc>,
 }
