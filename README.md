@@ -1,9 +1,36 @@
-# nilAuth
-The authority service that mints root NUC tokens
+# nilauth
 
-# docker compose
+nilauth keeps track of blind module subscriptions and allows minting the root NUCs that grant access to them.
 
-The docker compose setup spins up dependencies to be able to test the service locally.
+# Development
+
+Make sure your system has the following dependencies installed:
+* The [Rust programming language](https://www.rust-lang.org/).
+* [Docker compose](https://docs.docker.com/compose/).
+
+---
+
+Start dependencies by running:
+
+```bash
+docker compose up
+```
+
+Once they're up, start `nilauth` by running:
+
+```bash
+cargo run -- --config-file config.sample.yaml
+```
+
+## Tests
+
+Test the application by running:
+
+```bash
+cargo test
+```
+
+Note that tests require `docker` to be installed and will start and stop a few containers while they're running.
 
 ## nilchain
 
