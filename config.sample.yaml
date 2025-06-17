@@ -18,7 +18,8 @@ payments:
       nilai: 1
 
   token_price:
-    api_key: abc 
+    base_url: http://localhost:30923
+    api_key: abc
 
 postgres:
   url: postgres://postgres:postgres@127.0.0.1:5432/postgres
