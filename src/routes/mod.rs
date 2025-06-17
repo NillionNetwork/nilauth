@@ -3,13 +3,18 @@ use axum::{
     extract::{rejection::JsonRejection, FromRequest, Request},
     http::StatusCode,
     response::IntoResponse,
-    routing::{get, post},
+    routing::get,
     Extension, Router,
 };
 use convert_case::{Case, Casing};
 use nillion_nucs::{token::Did, validator::NucValidator};
 use serde::Serialize;
 use std::{ops::Deref, sync::Arc};
+use utoipa::{
+    openapi::{InfoBuilder, OpenApiBuilder},
+    ToSchema,
+};
+use utoipa_axum::{router::OpenApiRouter, routes};
 
 pub(crate) mod about;
 pub(crate) mod health;
@@ -31,27 +36,43 @@ pub fn build_router(state: AppState) -> Router {
             .expect("invalid public key size"),
     );
     let validator_state = TokenValidatorState::new(validator, nilauth_did);
-    Router::new()
-        .route("/about", get(about::handler))
-        .route("/health", get(health::handler))
+    let openapi = OpenApiBuilder::new().info(
+        InfoBuilder::new()
+            .title("nilauth API")
+            .description(Some(
+                "nilauth allows users to authenticate against the different Nillion blind modules",
+            ))
+            .version(env!("CARGO_PKG_VERSION"))
+            .build()
+    ).build();
+    let (router, openapi) = OpenApiRouter::with_openapi(openapi)
+        .routes(routes!(about::handler))
+        .routes(routes!(health::handler))
         .nest(
             "/api/v1/",
-            Router::new()
-                .route("/nucs/create", post(nucs::create::handler))
-                .route("/payments/validate", post(payments::validate::handler))
-                .route("/payments/cost", get(payments::cost::handler))
-                .route("/revocations/revoke", post(revocations::revoke::handler))
-                .route("/revocations/lookup", post(revocations::lookup::handler))
-                .route("/subscriptions/status", get(subscriptions::status::handler)),
+            OpenApiRouter::new()
+                .routes(routes!(nucs::create::handler))
+                .routes(routes!(payments::validate::handler))
+                .routes(routes!(payments::cost::handler))
+                .routes(routes!(revocations::revoke::handler))
+                .routes(routes!(revocations::lookup::handler))
+                .routes(routes!(subscriptions::status::handler)),
         )
         .with_state(state)
         .layer(Extension(validator_state))
+        .split_for_parts();
+    router.route("/openapi.json", get(async move || Json(openapi.clone())))
 }
 
 /// An error when handling a request.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct RequestHandlerError {
+    /// A descriptive message about the error that was encountered.
+    #[schema(examples("Something went wrong"))]
     pub(crate) message: String,
+
+    /// The error code.
+    #[schema(examples("MISSING_TOKEN"))]
     pub(crate) error_code: String,
 }
 

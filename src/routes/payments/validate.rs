@@ -17,15 +17,23 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use strum::EnumDiscriminants;
 use tracing::{error, info, warn};
+use utoipa::ToSchema;
 
-#[derive(Deserialize)]
+/// A request to validate a payment.
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct ValidatePaymentRequest {
+    /// The transaction hash that contains proof of this payment.
+    #[schema(examples("f7512550e93528be609eb2410b1d31aa4062e95a83a35f86800edbf1b1b7a51c"))]
     tx_hash: String,
 
+    /// The payload in hex-encoded form.
     #[serde(with = "hex::serde")]
+    #[schema(value_type = String, examples(crate::docs::hex_payload))]
     payload: Vec<u8>,
 
+    /// The public key for the user the subscription is for, in hex form.
     #[serde(with = "hex::serde")]
+    #[schema(value_type = String, examples(crate::docs::public_key))]
     public_key: [u8; 33],
 }
 
@@ -42,6 +50,16 @@ struct Payload {
     blind_module: BlindModule,
 }
 
+/// Validate a subscription payment.
+#[utoipa::path(
+    post,
+    path = "/payments/validate",
+    responses(
+        (status = OK, body = ()),
+        (status = 400, body = RequestHandlerError),
+        (status = 412, body = RequestHandlerError),
+    )
+)]
 pub(crate) async fn handler(
     state: SharedState,
     Json(request): Json<ValidatePaymentRequest>,

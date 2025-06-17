@@ -29,6 +29,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt"] }
 tokio = { version = "1.44", features = ["rt-multi-thread", "macros", "time", "signal"] }
 tower-http = { version = "0.6", features = ["cors"] }
+utoipa = { version = "5.3.1", features = ["chrono", "axum_extras"] }
+utoipa-axum = "0.2.0"
 
 [dev-dependencies]
 libc = "0.2"

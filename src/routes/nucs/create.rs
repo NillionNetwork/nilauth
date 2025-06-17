@@ -11,33 +11,51 @@ use nillion_nucs::{builder::NucTokenBuilder, token::Did};
 use serde::{Deserialize, Serialize};
 use strum::EnumDiscriminants;
 use tracing::{error, info};
+use utoipa::ToSchema;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 struct SignablePayload {
-    // A nonce, to add entropy.
+    // A nonce to add entropy in hex form.
     #[allow(dead_code)]
     #[serde(with = "hex::serde")]
+    #[schema(value_type = String, examples(crate::docs::nonce))]
     nonce: [u8; 16],
 
     // When this payload is no longer considered valid, to prevent reusing this forever if it
     // leaks.
     #[serde(with = "chrono::serde::ts_seconds")]
+    #[schema(value_type = u64, examples(crate::docs::epoch_timestamp))]
     expires_at: DateTime<Utc>,
 
-    // Our public key, to ensure this request can't be redirected to another authority service.
+    // Our public key, to ensure this request can't be redirected to another authority service,
+    // encoded in hex.
     #[serde(with = "hex::serde")]
+    #[schema(value_type = String, examples(crate::docs::public_key))]
     target_public_key: [u8; 33],
 
     // The blind_module we want a token for.
     blind_module: BlindModule,
 }
 
-#[derive(Debug, Serialize)]
+/// The response to a NUC create request.
+#[derive(Debug, Serialize, ToSchema)]
 pub(crate) struct CreateNucResponse {
+    /// The token in JWT serialized form.
+    #[schema(examples(crate::docs::nuc))]
     token: String,
 }
 
+/// Create a NUC.
+#[utoipa::path(
+    post,
+    path = "/nucs/create",
+    responses(
+        (status = OK, body = CreateNucResponse, description = "A NUC that can be used to delegate access to blind modules"),
+        (status = 400, body = RequestHandlerError),
+        (status = 412, body = RequestHandlerError),
+    )
+)]
 pub(crate) async fn handler(
     state: SharedState,
     request: Json<SignedRequest>,

@@ -6,20 +6,33 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use strum::EnumDiscriminants;
+use utoipa::{IntoParams, ToSchema};
 
-#[derive(Serialize)]
-pub(crate) struct GetCostResponse {
-    /// The cost in unils.
-    pub(crate) cost_unils: u64,
-}
-
-#[derive(Deserialize)]
-pub(crate) struct RequestQuery {
+/// A request to get the cost for a subscription.
+#[derive(Deserialize, IntoParams)]
+pub(crate) struct GetCostArgs {
+    /// The blind module to get the cost for.
+    #[param(value_type = String, example = crate::docs::blind_module)]
     blind_module: BlindModule,
 }
 
+/// The response to a request to get a subscription cost.
+#[derive(Serialize, ToSchema)]
+pub(crate) struct GetCostResponse {
+    /// The cost in unils.
+    #[schema(examples(1_000))]
+    cost_unils: u64,
+}
+
+/// Get the cost of a nilauth subscription.
+#[utoipa::path(
+    get,
+    path = "/payments/cost",
+    params(GetCostArgs),
+    responses((status = OK, body = GetCostResponse))
+)]
 pub(crate) async fn handler(
-    path: Query<RequestQuery>,
+    path: Query<GetCostArgs>,
     state: SharedState,
 ) -> Result<Json<GetCostResponse>, HandlerError> {
     let result = state

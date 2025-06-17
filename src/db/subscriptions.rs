@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{prelude::FromRow, query, query_as, Executor, Postgres};
 use std::{fmt, ops::DerefMut};
 use tracing::{error, info};
+use utoipa::ToSchema;
 
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
@@ -29,7 +30,7 @@ pub(crate) trait SubscriptionDb: Send + Sync + 'static {
         -> sqlx::Result<()>;
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum BlindModule {
     NilAi,

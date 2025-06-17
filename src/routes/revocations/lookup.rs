@@ -7,17 +7,32 @@ use nillion_nucs::token::ProofHash;
 use nillion_nucs::validator::ValidationParameters;
 use serde::{Deserialize, Serialize};
 use strum::EnumDiscriminants;
+use utoipa::ToSchema;
 
-#[derive(Deserialize)]
+/// A request to check whether a token is revoked.
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct LookupRevocationRequest {
+    /// The proof chain in the revocation being checked.
+    #[schema(value_type = Vec<String>, examples(crate::docs::proof_hash))]
     hashes: Vec<ProofHash>,
 }
 
-#[derive(Serialize)]
+/// The response to a request to look up a revocation.
+#[derive(Serialize, ToSchema)]
 pub(crate) struct LookupRevocationResponse {
+    /// The details of the tokens in the proof chain that were revoked.
     revoked: Vec<RevokedToken>,
 }
 
+/// Lookup a revoked token.
+#[utoipa::path(
+    post,
+    path = "/revocations/lookup",
+    responses(
+        (status = OK, body = LookupRevocationResponse, description = "The tokens in the proof chain that have been revoked"),
+        (status = 400, body = RequestHandlerError),
+    )
+)]
 pub(crate) async fn handler(
     state: SharedState,
     Json(request): Json<LookupRevocationRequest>,

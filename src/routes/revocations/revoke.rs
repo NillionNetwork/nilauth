@@ -18,6 +18,15 @@ use tracing::info;
 const TOKEN_ARG: &str = "token";
 static REVOCATION_CMD: LazyLock<Command> = LazyLock::new(|| ["nuc", "revoke"].into());
 
+/// Revoke a token.
+#[utoipa::path(
+    post,
+    path = "/revocations/revoke",
+    responses(
+        (status = OK, body = ()),
+        (status = 400, body = RequestHandlerError),
+    )
+)]
 pub(crate) async fn handler(state: SharedState, auth: NucAuth) -> Result<Json<()>, HandlerError> {
     if auth.0.token.command != *REVOCATION_CMD {
         return Err(HandlerError::InvalidCommand);

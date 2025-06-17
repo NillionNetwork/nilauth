@@ -2,10 +2,12 @@ use crate::state::SharedState;
 use axum::Json;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
+use utoipa::ToSchema;
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub(crate) struct About {
     #[serde(with = "hex::serde")]
+    #[schema(value_type = String, examples(crate::docs::public_key))]
     public_key: Box<[u8]>,
 
     build: BuildInfo,
@@ -13,12 +15,15 @@ pub(crate) struct About {
     started: DateTime<Utc>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 struct BuildInfo {
+    #[schema(examples("ff0d9198d1b8819527bc036a58f875c4046b6f21"))]
     commit: String,
     timestamp: DateTime<Utc>,
 }
 
+/// Get general information about this nilauth instance.
+#[utoipa::path(get, path = "/about", responses((status = OK, body = About, description = "Information about this nilauth instance")))]
 pub(crate) async fn handler(state: SharedState) -> Json<About> {
     let build_timestamp = env!("BUILD_TIMESTAMP").parse().unwrap_or(0);
     let build_timestamp = DateTime::from_timestamp(build_timestamp, 0).unwrap_or_default();

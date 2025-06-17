@@ -11,33 +11,60 @@ use nillion_nucs::k256::PublicKey;
 use serde::{Deserialize, Serialize};
 use strum::EnumDiscriminants;
 use tracing::error;
+use utoipa::{IntoParams, ToSchema};
 
-#[derive(Deserialize)]
-pub(crate) struct Request {
+/// A request to get a subscription's status.
+#[derive(Deserialize, IntoParams)]
+pub(crate) struct SubscriptionStatusArgs {
+    /// The public key to check the subscription for, in hex form.
     #[serde(with = "hex::serde")]
-    pub(crate) public_key: [u8; 33],
+    #[param(value_type = String, example = crate::docs::public_key)]
+    public_key: [u8; 33],
 
-    pub(crate) blind_module: BlindModule,
+    /// The blind module to check the subscription for.
+    #[param(value_type = String, example = crate::docs::blind_module)]
+    blind_module: BlindModule,
 }
 
-#[derive(Debug, Serialize)]
+/// The response to a request to get a subscription's status.
+#[derive(Debug, Serialize, ToSchema)]
 pub(crate) struct SubscriptionStatusResponse {
+    /// Whether the user is actively subscribed.
     subscribed: bool,
+
+    /// The subscription details.
     details: Option<Subscription>,
 }
 
-#[derive(Debug, Serialize, PartialEq)]
+/// A blind module subscription.
+#[derive(Debug, Serialize, PartialEq, ToSchema)]
 pub(crate) struct Subscription {
+    /// The timestamp at which this subscription expires.
     #[serde(with = "chrono::serde::ts_seconds")]
+    #[schema(value_type = u64, examples(crate::docs::epoch_timestamp))]
     expires_at: DateTime<Utc>,
 
+    /// The timestamp at which this subscription can be renewed.
+    ///
+    /// Attempting to renew a subscription before this timestamp will fail.
     #[serde(with = "chrono::serde::ts_seconds")]
+    #[schema(value_type = u64, examples(crate::docs::epoch_timestamp))]
     renewable_at: DateTime<Utc>,
 }
 
+//// Get a subscription's status.
+#[utoipa::path(
+    get,
+    path = "/subscriptions/status",
+    params(SubscriptionStatusArgs),
+    responses(
+        (status = OK, body = Subscription, description = "The details about the subscription associated with the input public key"),
+        (status = 400, body = RequestHandlerError),
+    )
+)]
 pub(crate) async fn handler(
     state: SharedState,
-    request: Query<Request>,
+    request: Query<SubscriptionStatusArgs>,
 ) -> Result<Json<SubscriptionStatusResponse>, HandlerError> {
     let public_key = PublicKey::from_sec1_bytes(&request.public_key)
         .map_err(|_| HandlerError::InvalidPublicKey)?;
@@ -104,7 +131,7 @@ mod tests {
     impl Handler {
         async fn invoke(
             self,
-            request: Request,
+            request: SubscriptionStatusArgs,
         ) -> Result<SubscriptionStatusResponse, HandlerError> {
             let state = self.builder.build();
             let request = Query(request);
@@ -135,7 +162,7 @@ mod tests {
         let renewal_threshold = Duration::from_secs(30);
         handler.builder.subscription_renewal_threshold = renewal_threshold;
 
-        let request = Request {
+        let request = SubscriptionStatusArgs {
             public_key: key.public_key().to_bytes(),
             blind_module,
         };
@@ -170,7 +197,7 @@ mod tests {
             .with(eq(key.public_key()), eq(blind_module))
             .return_once(move |_, _| Ok(Some(timestamp)));
 
-        let request = Request {
+        let request = SubscriptionStatusArgs {
             public_key: key.public_key().to_bytes(),
             blind_module,
         };
