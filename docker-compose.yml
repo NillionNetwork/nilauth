@@ -17,3 +17,9 @@ services:
       - 26649:26649 # gRPC
       - 26650:26650 # REST
 
+  token-price-api:
+    image: caddy:2
+    ports:
+      - "30923:80"
+    command: |
+      caddy respond --listen :80 --body '{"nillion":{"usd":1}}' --header "Content-Type: application/json" 
