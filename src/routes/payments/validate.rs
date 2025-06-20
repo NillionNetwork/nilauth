@@ -84,10 +84,11 @@ pub(crate) async fn handler(
         return Err(HandlerError::HashMismatch);
     }
     // Make sure they paid enough
+    let blind_module = decoded_payload.blind_module;
     match state
         .services
         .subscription_cost
-        .blind_module_cost(decoded_payload.blind_module)
+        .blind_module_cost(blind_module)
         .await
     {
         Ok(cost_unils) => {
@@ -99,7 +100,7 @@ pub(crate) async fn handler(
                 counter!("invalid_payments_total", "reason" => "underpaid").increment(1);
                 return Err(HandlerError::InsufficientPayment);
             }
-            counter!("payments_valid_total").increment(1);
+            counter!("payments_valid_total", "module" => blind_module.to_string()).increment(1);
             info!("Processed payment for {unil_paid}unil, minimum was {minimum_payment}");
         }
         Err(_) => {
@@ -111,7 +112,7 @@ pub(crate) async fn handler(
     state
         .databases
         .subscriptions
-        .credit_payment(&tx_hash, public_key, &decoded_payload.blind_module)
+        .credit_payment(&tx_hash, public_key, &blind_module)
         .await?;
     Ok(Json(()))
 }

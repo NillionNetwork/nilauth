@@ -7,6 +7,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use chrono::{DateTime, Utc};
+use metrics::counter;
 use nillion_nucs::{builder::NucTokenBuilder, token::Did};
 use serde::{Deserialize, Serialize};
 use strum::EnumDiscriminants;
@@ -94,7 +95,8 @@ pub(crate) async fn handler(
         }
     };
 
-    let segment = match payload.blind_module {
+    let blind_module = payload.blind_module;
+    let segment = match blind_module {
         BlindModule::NilAi => "ai",
         BlindModule::NilDb => "db",
     };
@@ -110,6 +112,7 @@ pub(crate) async fn handler(
             error!("Failed to sign token: {e}");
             HandlerError::Internal
         })?;
+    counter!("nucs_minted_total", "module" => blind_module.to_string()).increment(1);
     let response = CreateNucResponse { token };
     Ok(Json(response))
 }
