@@ -6,6 +6,7 @@ mod auth;
 mod cleanup;
 mod db;
 mod docs;
+mod metrics;
 mod routes;
 mod services;
 mod signed;
