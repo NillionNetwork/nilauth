@@ -2,6 +2,7 @@ use crate::cleanup::RevokedTokenCleaner;
 use crate::config::Config;
 use crate::db::revocations::PostgresRevocationDb;
 use crate::db::{subscriptions::PostgresSubscriptionDb, PostgresPool};
+use crate::metrics::ProcessMetricsCollector;
 use crate::services::subscription_cost::DefaultSubscriptionCostService;
 use crate::services::token_price::CoinGeckoTokenPriceService;
 use crate::state::{AppState, Databases, Parameters, Services};
@@ -84,6 +85,8 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         .layer(cors);
     let metrics_router =
         Router::new().route("/metrics", get(|| async move { metrics_handle.render() }));
+
+    ProcessMetricsCollector::spawn();
 
     let app = serve(config.server.bind_endpoint, router, "main");
     let metrics = serve(config.metrics.bind_endpoint, metrics_router, "metrics");
