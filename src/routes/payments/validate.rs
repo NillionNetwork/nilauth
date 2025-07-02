@@ -75,7 +75,7 @@ pub(crate) async fn handler(
     }
 
     // Make sure the client has proven they made the transaction
-    let tx_hash = request.tx_hash;
+    let tx_hash = request.tx_hash.to_lowercase();
     let tx = state.services.tx.get(&tx_hash).await?;
     let payload_hash = Sha256::digest(&request.payload);
     if tx.resource != payload_hash.as_slice() {
