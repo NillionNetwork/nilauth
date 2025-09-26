@@ -8,7 +8,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use metrics::counter;
-use nillion_nucs::{builder::NucTokenBuilder, token::Did};
+use nillion_nucs::{builder::NucTokenBuilder, did::Did, DidMethod};
 use serde::{Deserialize, Serialize};
 use strum::EnumDiscriminants;
 use tracing::{error, info};
@@ -67,12 +67,11 @@ pub(crate) async fn handler(
         .map_err(|e| HandlerError::MalformedPayload(e.to_string()))?;
     if payload.expires_at < state.services.time.current_time() {
         return Err(HandlerError::PayloadExpired);
-    } else if payload.target_public_key != *state.parameters.secret_key.public_key().to_sec1_bytes()
-    {
+    } else if payload.target_public_key != state.parameters.keypair.public_key() {
         return Err(HandlerError::InvalidTargetPublicKey);
     }
 
-    let requestor_did = Did::new(request.public_key);
+    let requestor_did = Did::key(request.public_key);
     let public_key = request.verify()?;
     let expires_at = match state
         .databases
@@ -102,12 +101,14 @@ pub(crate) async fn handler(
     };
 
     info!("Minting token for {requestor_did}, expires at '{expires_at}'");
+    let signer = state.parameters.keypair.signer(DidMethod::Key);
     let token = NucTokenBuilder::delegation([])
         .command(["nil", segment])
         .subject(requestor_did.clone())
         .audience(requestor_did)
         .expires_at(expires_at)
-        .build(&state.parameters.secret_key.clone().into())
+        .build(&signer)
+        .await
         .map_err(|e| {
             error!("Failed to sign token: {e}");
             HandlerError::Internal

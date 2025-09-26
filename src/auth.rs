@@ -2,7 +2,7 @@ use crate::routes::{Json, RequestHandlerError};
 use axum::http::StatusCode;
 use axum::{extract::FromRequestParts, http::request::Parts};
 use axum::{Extension, RequestPartsExt};
-use nillion_nucs::token::Did;
+use nillion_nucs::did::Did;
 use nillion_nucs::validator::{NucValidator, TokenTypeRequirements, ValidationParameters};
 use nillion_nucs::{envelope::NucTokenEnvelope, validator::ValidatedNucToken};
 use std::sync::Arc;
@@ -85,7 +85,7 @@ mod tests {
     use super::*;
     use crate::tests::random_public_key;
     use axum::http::Request;
-    use nillion_nucs::{builder::NucTokenBuilder, k256::SecretKey};
+    use nillion_nucs::{builder::NucTokenBuilder, DidMethod, Keypair};
 
     struct NucAuthBuilder {
         validator: NucValidator,
@@ -116,7 +116,7 @@ mod tests {
         fn default() -> Self {
             NucAuthBuilder {
                 validator: NucValidator::new(&[]),
-                nilauth_did: Did::new(random_public_key()),
+                nilauth_did: Did::key(random_public_key()),
             }
         }
     }
@@ -124,11 +124,13 @@ mod tests {
     #[tokio::test]
     async fn valid_token() {
         let builder = NucAuthBuilder::default();
+        let signer = Keypair::generate().signer(DidMethod::Key);
         let serialized_token = NucTokenBuilder::invocation(Default::default())
             .command(["nil"])
             .audience(builder.nilauth_did.clone())
-            .subject(Did::new(random_public_key()))
-            .build(&SecretKey::random(&mut rand::thread_rng()).into())
+            .subject(Did::key(random_public_key()))
+            .build(&signer)
+            .await
             .expect("failed to build token");
         let token = NucTokenEnvelope::decode(&serialized_token).unwrap();
         let auth = builder
@@ -152,11 +154,13 @@ mod tests {
     #[tokio::test]
     async fn invalid_signature() {
         let builder = NucAuthBuilder::default();
+        let signer = Keypair::generate().signer(DidMethod::Key);
         let token = NucTokenBuilder::invocation(Default::default())
             .command(["nil"])
             .audience(builder.nilauth_did.clone())
-            .subject(Did::new(random_public_key()))
-            .build(&SecretKey::random(&mut rand::thread_rng()).into())
+            .subject(Did::key(random_public_key()))
+            .build(&signer)
+            .await
             .expect("failed to build token");
         let (head, _) = token.rsplit_once('.').unwrap();
         let token = format!("{head}.o3lnQxCjDCW10UuRABrHp8FpB_C6q1xgEGvfuXTb7Epp63ry8R2h0wHjToDKDFmkmUmO2jcBkrttuy8kftV6og");

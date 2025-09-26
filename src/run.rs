@@ -23,7 +23,7 @@ use tower_http::cors::CorsLayer;
 use tracing::info;
 
 pub async fn run(config: Config) -> anyhow::Result<()> {
-    let secret_key = config.private_key.load_key()?;
+    let keypair = config.private_key.load_key()?;
     let token_price_service = Arc::new(CoinGeckoTokenPriceService::new(
         config.payments.token_price,
     )?);
@@ -49,7 +49,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     };
     let state = AppState {
         parameters: Parameters {
-            secret_key,
+            keypair,
             started_at: Utc::now(),
             subscription_cost_slippage: config.payments.subscriptions.payment_slippage,
             subscription_renewal_threshold: config.payments.subscriptions.renewal_threshold,

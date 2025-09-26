@@ -144,7 +144,7 @@ mod tests {
         let mut handler = Handler::default();
         let key = SecretKey::random(&mut rand::thread_rng());
         let now = Utc::now();
-        let timestamp = Utc::now();
+        let timestamp = now + Duration::from_secs(120);
         let blind_module = BlindModule::NilDb;
         handler
             .builder

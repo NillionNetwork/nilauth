@@ -7,9 +7,10 @@ use axum::{
     Extension, Router,
 };
 use convert_case::{Case, Casing};
-use nillion_nucs::{token::Did, validator::NucValidator};
+use nillion_nucs::{validator::NucValidator, DidMethod};
 use serde::Serialize;
 use std::{ops::Deref, sync::Arc};
+use nillion_nucs::k256::PublicKey;
 use utoipa::{
     openapi::{InfoBuilder, OpenApiBuilder},
     ToSchema,
@@ -25,16 +26,9 @@ pub(crate) mod subscriptions;
 
 pub fn build_router(state: AppState) -> Router {
     let state = Arc::new(state);
-    let public_key = state.parameters.secret_key.public_key();
+    let public_key = PublicKey::from_sec1_bytes(&state.parameters.keypair.public_key()).unwrap();
     let validator = NucValidator::new(&[public_key]);
-    // SAFETY: the key size is guaranteed to be correct.
-    let nilauth_did = Did::new(
-        public_key
-            .to_sec1_bytes()
-            .as_ref()
-            .try_into()
-            .expect("invalid public key size"),
-    );
+    let nilauth_did = state.parameters.keypair.to_did(DidMethod::Key);
     let validator_state = TokenValidatorState::new(validator, nilauth_did);
     let openapi = OpenApiBuilder::new().info(
         InfoBuilder::new()

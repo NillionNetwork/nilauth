@@ -1,8 +1,8 @@
-use ::nilauth::{config::Config, run::run};
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::Router;
 use axum::{extract::Query, Json};
+use ::nilauth::{config::Config, run::run};
 use nilauth_client::nilchain_client::{client::NillionChainClient, key::NillionChainPrivateKey};
 use rstest::fixture;
 use serde::Deserialize;
@@ -168,7 +168,7 @@ pub struct NilAuth {
 }
 
 #[fixture]
-pub(crate) fn nilauth() -> NilAuth {
+pub fn nilauth() -> NilAuth {
     // spin up services in a separate thread/runtime
     let mut services = SERVICES.lock().expect("lock poisoned");
     if services.is_none() {

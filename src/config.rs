@@ -1,5 +1,5 @@
 use anyhow::Context;
-use nillion_nucs::k256::SecretKey;
+use nillion_nucs::Keypair;
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use serde_with::serde_as;
@@ -57,15 +57,20 @@ pub enum PrivateKeyConfig {
 
 impl PrivateKeyConfig {
     /// Load a key using this configuration.
-    pub fn load_key(&self) -> anyhow::Result<SecretKey> {
-        let bytes = match self {
-            PrivateKeyConfig::Hex(bytes) => bytes.to_vec(),
+    pub fn load_key(&self) -> anyhow::Result<Keypair> {
+        let bytes: [u8; 32] = match self {
+            PrivateKeyConfig::Hex(hex_bytes) => hex_bytes
+                .to_vec()
+                .try_into()
+                .map_err(|v: Vec<u8>| anyhow::anyhow!("Expected 32 bytes, got {}", v.len()))?,
             PrivateKeyConfig::Path(path_buf) => {
-                fs::read(path_buf).context("failed to read private key from file")?
+                let vec = fs::read(path_buf).context("failed to read private key from file")?;
+                vec.try_into().map_err(|v: Vec<u8>| {
+                    anyhow::anyhow!("Private key file must be exactly 32 bytes, got {}", v.len())
+                })?
             }
         };
-        let private_key = SecretKey::from_slice(&bytes).context("invalid private key")?;
-        Ok(private_key)
+        Ok(Keypair::from_bytes(&bytes))
     }
 }
 

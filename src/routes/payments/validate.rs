@@ -68,9 +68,8 @@ pub(crate) async fn handler(
         .map_err(|_| HandlerError::InvalidPublicKey)?;
     let decoded_payload: Payload = serde_json::from_slice(&request.payload)
         .map_err(|e| HandlerError::MalformedPayload(e.to_string()))?;
-    if decoded_payload.service_public_key
-        != *state.parameters.secret_key.public_key().to_sec1_bytes()
-    {
+
+    if decoded_payload.service_public_key != state.parameters.keypair.public_key() {
         return Err(HandlerError::UnknownPublicKey);
     }
 

@@ -3,7 +3,7 @@ use nilauth_client::client::{
     BlindModule, DefaultNilauthClient, NilauthClient, PaySubscriptionError, RequestTokenError,
     RevokeTokenArgs,
 };
-use nillion_nucs::{envelope::NucTokenEnvelope, k256::SecretKey, token::Did};
+use nillion_nucs::{did::Did, envelope::NucTokenEnvelope, k256::SecretKey};
 use rstest::rstest;
 use setup::{nilauth, NilAuth};
 use std::time::Duration;
@@ -43,7 +43,7 @@ async fn pay_and_mint(nilauth: NilAuth) {
         .into_token();
     assert_eq!(
         token.audience,
-        Did::new(
+        Did::key(
             key.public_key()
                 .to_sec1_bytes()
                 .as_ref()

@@ -10,6 +10,7 @@ use nilauth_client::nilchain_client::tx::{
     PaymentTransaction, PaymentTransactionRetriever, RetrieveError,
 };
 use nillion_nucs::k256::{PublicKey, SecretKey};
+use nillion_nucs::Keypair;
 use rust_decimal::Decimal;
 use std::sync::Arc;
 use std::time::Duration;
@@ -24,7 +25,7 @@ mock! {
 }
 
 pub(crate) struct AppStateBuilder {
-    pub(crate) secret_key: SecretKey,
+    pub(crate) keypair: Keypair,
     pub(crate) tx_retriever: MockPaymentRetriever,
     pub(crate) time_service: MockTimeService,
     pub(crate) subscription_costs_service: MockSubscriptionCostService,
@@ -36,7 +37,7 @@ pub(crate) struct AppStateBuilder {
 impl Default for AppStateBuilder {
     fn default() -> Self {
         Self {
-            secret_key: SecretKey::random(&mut rand::thread_rng()),
+            keypair: Keypair::generate(),
             tx_retriever: Default::default(),
             time_service: Default::default(),
             subscription_costs_service: Default::default(),
@@ -50,7 +51,7 @@ impl Default for AppStateBuilder {
 impl AppStateBuilder {
     pub(crate) fn build(self) -> Arc<AppState> {
         let Self {
-            secret_key,
+            keypair,
             tx_retriever,
             time_service,
             subscription_costs_service,
@@ -61,7 +62,7 @@ impl AppStateBuilder {
 
         Arc::new(AppState {
             parameters: Parameters {
-                secret_key,
+                keypair,
                 started_at: Utc::now(),
                 // 0.01
                 subscription_cost_slippage: Decimal::new(1, 2),
@@ -80,7 +81,7 @@ impl AppStateBuilder {
     }
 
     pub(crate) fn public_key(&self) -> Vec<u8> {
-        self.secret_key.public_key().to_sec1_bytes().to_vec()
+        self.keypair.public_key().to_vec()
     }
 
     pub(crate) fn set_current_time(&mut self, timestamp: DateTime<Utc>) {
