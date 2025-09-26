@@ -54,14 +54,9 @@ mod tests {
         let mut time = MockTimeService::default();
         let now = Utc::now();
         time.expect_current_time().return_once(move || now);
-        db.expect_delete_expired()
-            .with(eq(now - CLEANUP_GRACE_PERIOD))
-            .return_once(|_| Ok(1));
+        db.expect_delete_expired().with(eq(now - CLEANUP_GRACE_PERIOD)).return_once(|_| Ok(1));
 
-        let cleaner = RevokedTokenCleaner {
-            db: Arc::new(db),
-            time: Box::new(time),
-        };
+        let cleaner = RevokedTokenCleaner { db: Arc::new(db), time: Box::new(time) };
         cleaner.try_delete().await.expect("failed to delete");
     }
 }

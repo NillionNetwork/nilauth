@@ -63,8 +63,8 @@ pub(crate) async fn handler(
 ) -> Result<Json<CreateNucResponse>, HandlerError> {
     let request = request.0;
     // Validate the payload has the right shape and toss it away.
-    let payload: SignablePayload = serde_json::from_slice(&request.payload)
-        .map_err(|e| HandlerError::MalformedPayload(e.to_string()))?;
+    let payload: SignablePayload =
+        serde_json::from_slice(&request.payload).map_err(|e| HandlerError::MalformedPayload(e.to_string()))?;
     if payload.expires_at < state.services.time.current_time() {
         return Err(HandlerError::PayloadExpired);
     } else if payload.target_public_key != state.parameters.keypair.public_key() {
@@ -73,11 +73,7 @@ pub(crate) async fn handler(
 
     let requestor_did = Did::key(request.public_key);
     let public_key = request.verify()?;
-    let expires_at = match state
-        .databases
-        .subscriptions
-        .find_subscription_end(&public_key, &payload.blind_module)
-        .await
+    let expires_at = match state.databases.subscriptions.find_subscription_end(&public_key, &payload.blind_module).await
     {
         Ok(Some(timestamp)) => {
             if timestamp <= state.services.time.current_time() {
@@ -147,24 +143,13 @@ impl IntoResponse for HandlerError {
         let (code, message) = match self {
             Self::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()),
             Self::InvalidPublicKey => (StatusCode::BAD_REQUEST, "invalid public key".into()),
-            Self::InvalidTargetPublicKey => {
-                (StatusCode::BAD_REQUEST, "invalid target public key".into())
-            }
+            Self::InvalidTargetPublicKey => (StatusCode::BAD_REQUEST, "invalid target public key".into()),
             Self::InvalidSignature => (StatusCode::BAD_REQUEST, "invalid signature".into()),
-            Self::MalformedPayload(reason) => (
-                StatusCode::BAD_REQUEST,
-                format!("malformed payload: {reason}"),
-            ),
+            Self::MalformedPayload(reason) => (StatusCode::BAD_REQUEST, format!("malformed payload: {reason}")),
             Self::NotSubscribed => (StatusCode::PRECONDITION_FAILED, "not subscribed".into()),
             Self::PayloadExpired => (StatusCode::PRECONDITION_FAILED, "payload is expired".into()),
-            Self::SignatureVerification => (
-                StatusCode::BAD_REQUEST,
-                "signature verification failed".into(),
-            ),
-            Self::SubscriptionExpired => (
-                StatusCode::PRECONDITION_FAILED,
-                "subscription expired".into(),
-            ),
+            Self::SignatureVerification => (StatusCode::BAD_REQUEST, "signature verification failed".into()),
+            Self::SubscriptionExpired => (StatusCode::PRECONDITION_FAILED, "subscription expired".into()),
         };
         let response = RequestHandlerError::new(message, format!("{discriminant:?}"));
         (code, Json(response)).into_response()
@@ -197,10 +182,7 @@ mod tests {
     impl Default for Handler {
         fn default() -> Self {
             let mut builder = AppStateBuilder::default();
-            builder
-                .time_service
-                .expect_current_time()
-                .returning(|| Utc::now() - Duration::from_secs(60));
+            builder.time_service.expect_current_time().returning(|| Utc::now() - Duration::from_secs(60));
             Self { builder }
         }
     }
@@ -232,11 +214,7 @@ mod tests {
         let client_key = SecretKey::random(&mut rand::thread_rng());
         let now = Utc::now();
         let blind_module = BlindModule::NilDb;
-        handler.expect_subscription_ends(
-            client_key.public_key(),
-            Some(now + Duration::from_secs(60)),
-            blind_module,
-        );
+        handler.expect_subscription_ends(client_key.public_key(), Some(now + Duration::from_secs(60)), blind_module);
         handler.builder.set_current_time(now);
 
         let payload = SignablePayload {
@@ -267,10 +245,7 @@ mod tests {
             blind_module,
         };
         let request = SignedRequest::new(&client_key, &payload);
-        let err = handler
-            .invoke(request)
-            .await
-            .expect_err("request succeeded");
+        let err = handler.invoke(request).await.expect_err("request succeeded");
         assert!(matches!(err, HandlerError::NotSubscribed));
     }
 
@@ -280,11 +255,7 @@ mod tests {
         let client_key = SecretKey::random(&mut rand::thread_rng());
         let now = Utc::now();
         let blind_module = BlindModule::NilDb;
-        handler.expect_subscription_ends(
-            client_key.public_key(),
-            Some(now - Duration::from_secs(1)),
-            blind_module,
-        );
+        handler.expect_subscription_ends(client_key.public_key(), Some(now - Duration::from_secs(1)), blind_module);
         handler.builder.set_current_time(now);
 
         let payload = &SignablePayload {
@@ -294,10 +265,7 @@ mod tests {
             blind_module,
         };
         let request = SignedRequest::new(&client_key, &payload);
-        let err = handler
-            .invoke(request)
-            .await
-            .expect_err("request succeeded");
+        let err = handler.invoke(request).await.expect_err("request succeeded");
         assert!(matches!(err, HandlerError::SubscriptionExpired));
     }
 
@@ -345,10 +313,7 @@ mod tests {
             blind_module: BlindModule::NilDb,
         };
         let request = SignedRequest::new(&client_key, &payload);
-        let err = handler
-            .invoke(request)
-            .await
-            .expect_err("token minted successfully");
+        let err = handler.invoke(request).await.expect_err("token minted successfully");
         assert!(matches!(err, HandlerError::PayloadExpired));
     }
 
@@ -363,10 +328,7 @@ mod tests {
             blind_module: BlindModule::NilDb,
         };
         let request = SignedRequest::new(&client_key, &payload);
-        let err = handler
-            .invoke(request)
-            .await
-            .expect_err("token minted successfully");
+        let err = handler.invoke(request).await.expect_err("token minted successfully");
         assert!(matches!(err, HandlerError::InvalidTargetPublicKey));
     }
 }

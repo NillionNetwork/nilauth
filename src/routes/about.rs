@@ -30,10 +30,7 @@ pub(crate) async fn handler(state: SharedState) -> Json<About> {
     About {
         started: state.parameters.started_at,
         public_key: state.parameters.keypair.public_key().into(),
-        build: BuildInfo {
-            commit: env!("BUILD_GIT_COMMIT_HASH").to_string(),
-            timestamp: build_timestamp,
-        },
+        build: BuildInfo { commit: env!("BUILD_GIT_COMMIT_HASH").to_string(), timestamp: build_timestamp },
     }
     .into()
 }

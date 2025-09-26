@@ -34,22 +34,14 @@ impl SignedRequest {
         let payload = serde_json::to_string(&payload).expect("failed to serialize payload");
         let signature: Signature = SigningKey::from(key.clone()).sign(payload.as_bytes());
         let signature = signature.to_bytes().try_into().unwrap();
-        SignedRequest {
-            public_key: key.public_key().to_bytes(),
-            signature,
-            payload: payload.as_bytes().to_vec(),
-        }
+        SignedRequest { public_key: key.public_key().to_bytes(), signature, payload: payload.as_bytes().to_vec() }
     }
 
     pub(crate) fn verify(self) -> Result<PublicKey, VerificationError> {
         use VerificationError::*;
-        let verifying_key =
-            VerifyingKey::from_sec1_bytes(&self.public_key).map_err(|_| InvalidPublicKey)?;
-        let signature =
-            Signature::from_bytes(&self.signature.into()).map_err(|_| InvalidSignature)?;
-        verifying_key
-            .verify(&self.payload, &signature)
-            .map_err(|_| SignatureVerification)?;
+        let verifying_key = VerifyingKey::from_sec1_bytes(&self.public_key).map_err(|_| InvalidPublicKey)?;
+        let signature = Signature::from_bytes(&self.signature.into()).map_err(|_| InvalidSignature)?;
+        verifying_key.verify(&self.payload, &signature).map_err(|_| SignatureVerification)?;
         Ok(PublicKey::from(verifying_key))
     }
 }
@@ -80,12 +72,7 @@ mod tests {
         let payload = rand::random::<[u8; 16]>().to_vec();
         let signature: Signature = SigningKey::from(&key).sign(&payload);
         let request = SignedRequest {
-            public_key: key
-                .public_key()
-                .to_sec1_bytes()
-                .as_ref()
-                .try_into()
-                .unwrap(),
+            public_key: key.public_key().to_sec1_bytes().as_ref().try_into().unwrap(),
             signature: signature.to_bytes().into(),
             payload,
         };
@@ -100,12 +87,7 @@ mod tests {
         let payload = rand::random::<[u8; 16]>().to_vec();
         let signature: Signature = SigningKey::from(&signing_key).sign(&payload);
         let request = SignedRequest {
-            public_key: other_key
-                .public_key()
-                .to_sec1_bytes()
-                .as_ref()
-                .try_into()
-                .unwrap(),
+            public_key: other_key.public_key().to_sec1_bytes().as_ref().try_into().unwrap(),
             signature: signature.to_bytes().into(),
             payload,
         };

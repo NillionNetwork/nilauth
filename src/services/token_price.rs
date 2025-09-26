@@ -27,15 +27,8 @@ pub(crate) struct CoinGeckoTokenPriceService {
 
 impl CoinGeckoTokenPriceService {
     pub(crate) fn new(config: TokenPriceConfig) -> anyhow::Result<Self> {
-        let TokenPriceConfig {
-            base_url,
-            api_key,
-            coin_id,
-            request_timeout,
-        } = config;
-        let client = reqwest::Client::builder()
-            .timeout(request_timeout)
-            .build()?;
+        let TokenPriceConfig { base_url, api_key, coin_id, request_timeout } = config;
+        let client = reqwest::Client::builder().timeout(request_timeout).build()?;
         Ok(Self {
             client,
             api_key,
@@ -79,10 +72,8 @@ impl TokenPriceService for CoinGeckoTokenPriceService {
             }
         };
 
-        let response: HashMap<String, TokenPrice> = response
-            .json()
-            .await
-            .map_err(|e| anyhow!("invalid JSON response from CoinGecko: {e}"))?;
+        let response: HashMap<String, TokenPrice> =
+            response.json().await.map_err(|e| anyhow!("invalid JSON response from CoinGecko: {e}"))?;
 
         let price = response
             .get(&self.coin_id)
@@ -98,10 +89,7 @@ impl TokenPriceService for CoinGeckoTokenPriceService {
 
         info!("Token price from CoinGecko: {price}");
 
-        *last_price = CachedPrice {
-            timestamp: Instant::now(),
-            price,
-        };
+        *last_price = CachedPrice { timestamp: Instant::now(), price };
         Ok(price)
     }
 }

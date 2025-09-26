@@ -6,9 +6,7 @@ use crate::time::MockTimeService;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use mockall::mock;
-use nilauth_client::nilchain_client::tx::{
-    PaymentTransaction, PaymentTransactionRetriever, RetrieveError,
-};
+use nilauth_client::nilchain_client::tx::{PaymentTransaction, PaymentTransactionRetriever, RetrieveError};
 use nillion_nucs::k256::{PublicKey, SecretKey};
 use nillion_nucs::Keypair;
 use rust_decimal::Decimal;
@@ -73,10 +71,7 @@ impl AppStateBuilder {
                 time: Box::new(time_service),
                 subscription_cost: Box::new(subscription_costs_service),
             },
-            databases: Databases {
-                subscriptions: Box::new(subscriptions_db),
-                revocations: Arc::new(revocation_db),
-            },
+            databases: Databases { subscriptions: Box::new(subscriptions_db), revocations: Arc::new(revocation_db) },
         })
     }
 
@@ -87,16 +82,12 @@ impl AppStateBuilder {
     pub(crate) fn set_current_time(&mut self, timestamp: DateTime<Utc>) {
         // reset any expectations and set a new one
         self.time_service.checkpoint();
-        self.time_service
-            .expect_current_time()
-            .returning(move || timestamp);
+        self.time_service.expect_current_time().returning(move || timestamp);
     }
 }
 
 pub(crate) fn random_public_key() -> [u8; 33] {
-    SecretKey::random(&mut rand::thread_rng())
-        .public_key()
-        .to_bytes()
+    SecretKey::random(&mut rand::thread_rng()).public_key().to_bytes()
 }
 
 pub(crate) trait PublicKeyExt {
@@ -105,9 +96,6 @@ pub(crate) trait PublicKeyExt {
 
 impl PublicKeyExt for PublicKey {
     fn to_bytes(self) -> [u8; 33] {
-        self.to_sec1_bytes()
-            .as_ref()
-            .try_into()
-            .expect("invalid public key")
+        self.to_sec1_bytes().as_ref().try_into().expect("invalid public key")
     }
 }

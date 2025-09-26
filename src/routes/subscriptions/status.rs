@@ -66,14 +66,9 @@ pub(crate) async fn handler(
     state: SharedState,
     request: Query<SubscriptionStatusArgs>,
 ) -> Result<Json<SubscriptionStatusResponse>, HandlerError> {
-    let public_key = PublicKey::from_sec1_bytes(&request.public_key)
-        .map_err(|_| HandlerError::InvalidPublicKey)?;
-    let expires_at = state
-        .databases
-        .subscriptions
-        .find_subscription_end(&public_key, &request.blind_module)
-        .await
-        .map_err(|e| {
+    let public_key = PublicKey::from_sec1_bytes(&request.public_key).map_err(|_| HandlerError::InvalidPublicKey)?;
+    let expires_at =
+        state.databases.subscriptions.find_subscription_end(&public_key, &request.blind_module).await.map_err(|e| {
             error!("Subscription lookup failed: {e}");
             HandlerError::Internal
         })?;
@@ -81,13 +76,8 @@ pub(crate) async fn handler(
         expires_at,
         renewable_at: expires_at - state.parameters.subscription_renewal_threshold,
     });
-    let subscribed = expires_at
-        .map(|e| e > state.services.time.current_time())
-        .unwrap_or_default();
-    Ok(Json(SubscriptionStatusResponse {
-        subscribed,
-        details,
-    }))
+    let subscribed = expires_at.map(|e| e > state.services.time.current_time()).unwrap_or_default();
+    Ok(Json(SubscriptionStatusResponse { subscribed, details }))
 }
 
 #[derive(Debug, EnumDiscriminants)]
@@ -129,10 +119,7 @@ mod tests {
     }
 
     impl Handler {
-        async fn invoke(
-            self,
-            request: SubscriptionStatusArgs,
-        ) -> Result<SubscriptionStatusResponse, HandlerError> {
+        async fn invoke(self, request: SubscriptionStatusArgs) -> Result<SubscriptionStatusResponse, HandlerError> {
             let state = self.builder.build();
             let request = Query(request);
             handler(State(state), request).await.map(|r| r.0)
@@ -146,11 +133,7 @@ mod tests {
         let now = Utc::now();
         let timestamp = now + Duration::from_secs(120);
         let blind_module = BlindModule::NilDb;
-        handler
-            .builder
-            .time_service
-            .expect_current_time()
-            .returning(move || now);
+        handler.builder.time_service.expect_current_time().returning(move || now);
 
         handler
             .builder
@@ -162,18 +145,12 @@ mod tests {
         let renewal_threshold = Duration::from_secs(30);
         handler.builder.subscription_renewal_threshold = renewal_threshold;
 
-        let request = SubscriptionStatusArgs {
-            public_key: key.public_key().to_bytes(),
-            blind_module,
-        };
+        let request = SubscriptionStatusArgs { public_key: key.public_key().to_bytes(), blind_module };
         let response = handler.invoke(request).await.expect("handler failed");
         assert!(response.subscribed);
         assert_eq!(
             response.details,
-            Some(Subscription {
-                expires_at: timestamp,
-                renewable_at: timestamp - renewal_threshold
-            })
+            Some(Subscription { expires_at: timestamp, renewable_at: timestamp - renewal_threshold })
         );
     }
 
@@ -184,11 +161,7 @@ mod tests {
         let now = Utc::now();
         let timestamp = now - Duration::from_secs(60);
         let blind_module = BlindModule::NilDb;
-        handler
-            .builder
-            .time_service
-            .expect_current_time()
-            .returning(move || now);
+        handler.builder.time_service.expect_current_time().returning(move || now);
 
         handler
             .builder
@@ -197,14 +170,9 @@ mod tests {
             .with(eq(key.public_key()), eq(blind_module))
             .return_once(move |_, _| Ok(Some(timestamp)));
 
-        let request = SubscriptionStatusArgs {
-            public_key: key.public_key().to_bytes(),
-            blind_module,
-        };
+        let request = SubscriptionStatusArgs { public_key: key.public_key().to_bytes(), blind_module };
         let response = handler.invoke(request).await.expect("handler failed");
         assert!(!response.subscribed);
-        response
-            .details
-            .expect("subscription should still be returned");
+        response.details.expect("subscription should still be returned");
     }
 }

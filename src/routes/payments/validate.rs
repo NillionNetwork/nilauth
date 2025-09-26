@@ -1,8 +1,6 @@
 use crate::db::subscriptions::BlindModule;
 use crate::routes::Json;
-use crate::{
-    db::subscriptions::CreditPaymentError, routes::RequestHandlerError, state::SharedState,
-};
+use crate::{db::subscriptions::CreditPaymentError, routes::RequestHandlerError, state::SharedState};
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
@@ -64,10 +62,9 @@ pub(crate) async fn handler(
     state: SharedState,
     Json(request): Json<ValidatePaymentRequest>,
 ) -> Result<Json<()>, HandlerError> {
-    let public_key = PublicKey::from_sec1_bytes(&request.public_key)
-        .map_err(|_| HandlerError::InvalidPublicKey)?;
-    let decoded_payload: Payload = serde_json::from_slice(&request.payload)
-        .map_err(|e| HandlerError::MalformedPayload(e.to_string()))?;
+    let public_key = PublicKey::from_sec1_bytes(&request.public_key).map_err(|_| HandlerError::InvalidPublicKey)?;
+    let decoded_payload: Payload =
+        serde_json::from_slice(&request.payload).map_err(|e| HandlerError::MalformedPayload(e.to_string()))?;
 
     if decoded_payload.service_public_key != state.parameters.keypair.public_key() {
         return Err(HandlerError::UnknownPublicKey);
@@ -84,16 +81,11 @@ pub(crate) async fn handler(
     }
     // Make sure they paid enough
     let blind_module = decoded_payload.blind_module;
-    match state
-        .services
-        .subscription_cost
-        .blind_module_cost(blind_module)
-        .await
-    {
+    match state.services.subscription_cost.blind_module_cost(blind_module).await {
         Ok(cost_unils) => {
             let unil_paid = Decimal::from(tx.amount.to_unil());
-            let minimum_payment = Decimal::from(cost_unils)
-                * (Decimal::from(1) - state.parameters.subscription_cost_slippage);
+            let minimum_payment =
+                Decimal::from(cost_unils) * (Decimal::from(1) - state.parameters.subscription_cost_slippage);
             if unil_paid < minimum_payment {
                 warn!("Expected payment for {minimum_payment} but got {unil_paid} unils");
                 counter!("invalid_payments_total", "reason" => "underpaid").increment(1);
@@ -108,20 +100,12 @@ pub(crate) async fn handler(
         }
     };
 
-    state
-        .databases
-        .subscriptions
-        .credit_payment(&tx_hash, public_key, &blind_module)
-        .await?;
+    state.databases.subscriptions.credit_payment(&tx_hash, public_key, &blind_module).await?;
     Ok(Json(()))
 }
 
 async fn store_invalid_payment(state: &SharedState, tx_hash: &str, public_key: PublicKey) {
-    let result = state
-        .databases
-        .subscriptions
-        .store_invalid_payment(tx_hash, public_key)
-        .await;
+    let result = state.databases.subscriptions.store_invalid_payment(tx_hash, public_key).await;
     match result {
         Ok(_) => (),
         Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
@@ -172,43 +156,20 @@ impl IntoResponse for HandlerError {
     fn into_response(self) -> Response {
         let discriminant = HandlerErrorDiscriminants::from(&self);
         let (code, message) = match self {
-            Self::CannotRenewYet => (
-                StatusCode::PRECONDITION_FAILED,
-                "cannot renew subscription yet".into(),
-            ),
-            Self::PaymentAlreadyProcessed => (
-                StatusCode::PRECONDITION_FAILED,
-                "payment transaction already processed".into(),
-            ),
-            Self::HashMismatch => (
-                StatusCode::BAD_REQUEST,
-                "payload hash does not match transaction nonce".into(),
-            ),
-            Self::InvalidPublicKey => (
-                StatusCode::BAD_REQUEST,
-                "invalid public key in request".into(),
-            ),
-            Self::InsufficientPayment => (
-                StatusCode::PRECONDITION_FAILED,
-                "insufficient payment".into(),
-            ),
+            Self::CannotRenewYet => (StatusCode::PRECONDITION_FAILED, "cannot renew subscription yet".into()),
+            Self::PaymentAlreadyProcessed => {
+                (StatusCode::PRECONDITION_FAILED, "payment transaction already processed".into())
+            }
+            Self::HashMismatch => (StatusCode::BAD_REQUEST, "payload hash does not match transaction nonce".into()),
+            Self::InvalidPublicKey => (StatusCode::BAD_REQUEST, "invalid public key in request".into()),
+            Self::InsufficientPayment => (StatusCode::PRECONDITION_FAILED, "insufficient payment".into()),
             Self::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()),
-            Self::MalformedPayload(reason) => (
-                StatusCode::BAD_REQUEST,
-                format!("malformed payload: {reason}"),
-            ),
-            Self::UnknownPublicKey => (
-                StatusCode::BAD_REQUEST,
-                "payload public key is different from ours".into(),
-            ),
-            Self::TransactionNotCommitted => (
-                StatusCode::PRECONDITION_FAILED,
-                "transaction is not yet committed".into(),
-            ),
-            Self::MalformedTransaction => (
-                StatusCode::BAD_REQUEST,
-                "transaction payload is malformed".into(),
-            ),
+            Self::MalformedPayload(reason) => (StatusCode::BAD_REQUEST, format!("malformed payload: {reason}")),
+            Self::UnknownPublicKey => (StatusCode::BAD_REQUEST, "payload public key is different from ours".into()),
+            Self::TransactionNotCommitted => {
+                (StatusCode::PRECONDITION_FAILED, "transaction is not yet committed".into())
+            }
+            Self::MalformedTransaction => (StatusCode::BAD_REQUEST, "transaction payload is malformed".into()),
             Self::TransactionLookup => (StatusCode::NOT_FOUND, "transaction not found".into()),
         };
         let response = RequestHandlerError::new(message, format!("{discriminant:?}"));
@@ -237,16 +198,8 @@ mod tests {
             handler(State(state), request).await.map(|r| r.0)
         }
 
-        fn expect_tx_retrieve(
-            &mut self,
-            tx_hash: String,
-            response: Result<PaymentTransaction, RetrieveError>,
-        ) {
-            self.builder
-                .tx_retriever
-                .expect_get()
-                .with(eq(tx_hash))
-                .return_once(move |_| response);
+        fn expect_tx_retrieve(&mut self, tx_hash: String, response: Result<PaymentTransaction, RetrieveError>) {
+            self.builder.tx_retriever.expect_get().with(eq(tx_hash)).return_once(move |_| response);
         }
     }
 
@@ -255,11 +208,7 @@ mod tests {
         let tx_hash = "0xdeadbeef".to_string();
         let mut handler = Handler::default();
         let blind_module = BlindModule::NilDb;
-        let payload = Payload {
-            nonce: rand::random(),
-            service_public_key: handler.builder.public_key(),
-            blind_module,
-        };
+        let payload = Payload { nonce: rand::random(), service_public_key: handler.builder.public_key(), blind_module };
         let payload = serde_json::to_vec(&payload).expect("failed to serialize");
         let payload_hash = Sha256::digest(&payload);
         handler.expect_tx_retrieve(
@@ -277,11 +226,7 @@ mod tests {
             .builder
             .subscriptions_db
             .expect_credit_payment()
-            .with(
-                eq(tx_hash.clone()),
-                eq(public_key.clone()),
-                eq(blind_module),
-            )
+            .with(eq(tx_hash.clone()), eq(public_key.clone()), eq(blind_module))
             .return_once(move |_, _, _| Ok(()));
         handler
             .builder
@@ -290,11 +235,7 @@ mod tests {
             .with(eq(blind_module))
             .return_once(|_| Ok(1));
         handler
-            .invoke(ValidatePaymentRequest {
-                tx_hash,
-                payload,
-                public_key: public_key.to_bytes(),
-            })
+            .invoke(ValidatePaymentRequest { tx_hash, payload, public_key: public_key.to_bytes() })
             .await
             .expect("request failed");
     }
@@ -304,11 +245,7 @@ mod tests {
         let tx_hash = "0xdeadbeef".to_string();
         let mut handler = Handler::default();
         let blind_module = BlindModule::NilDb;
-        let payload = Payload {
-            nonce: rand::random(),
-            service_public_key: handler.builder.public_key(),
-            blind_module,
-        };
+        let payload = Payload { nonce: rand::random(), service_public_key: handler.builder.public_key(), blind_module };
         let payload = serde_json::to_vec(&payload).expect("failed to serialize");
         let payload_hash = Sha256::digest(&payload);
         handler.expect_tx_retrieve(
@@ -329,11 +266,7 @@ mod tests {
             .with(eq(blind_module))
             .return_once(|_| Ok(1_000_000));
         handler
-            .invoke(ValidatePaymentRequest {
-                tx_hash,
-                payload,
-                public_key: public_key.to_bytes(),
-            })
+            .invoke(ValidatePaymentRequest { tx_hash, payload, public_key: public_key.to_bytes() })
             .await
             .expect_err("request succeeded");
     }
@@ -366,11 +299,7 @@ mod tests {
             .with(eq(tx_hash.clone()), eq(public_key.clone()))
             .return_once(|_, _| Ok(()));
         let err = handler
-            .invoke(ValidatePaymentRequest {
-                tx_hash,
-                payload,
-                public_key: public_key.to_bytes(),
-            })
+            .invoke(ValidatePaymentRequest { tx_hash, payload, public_key: public_key.to_bytes() })
             .await
             .expect_err("request succeeded");
         assert!(matches!(err, HandlerError::HashMismatch));
@@ -388,11 +317,7 @@ mod tests {
         let payload = serde_json::to_vec(&payload).expect("failed to serialize");
         handler.expect_tx_retrieve(tx_hash.clone(), Err(RetrieveError::NotCommitted));
         let err = handler
-            .invoke(ValidatePaymentRequest {
-                tx_hash,
-                payload,
-                public_key: random_public_key(),
-            })
+            .invoke(ValidatePaymentRequest { tx_hash, payload, public_key: random_public_key() })
             .await
             .expect_err("request succeeded");
         assert!(matches!(err, HandlerError::TransactionNotCommitted));

@@ -26,8 +26,7 @@ pub(crate) trait SubscriptionDb: Send + Sync + 'static {
         blind_module: &BlindModule,
     ) -> Result<(), CreditPaymentError>;
 
-    async fn store_invalid_payment(&self, tx_hash: &str, public_key: PublicKey)
-        -> sqlx::Result<()>;
+    async fn store_invalid_payment(&self, tx_hash: &str, public_key: PublicKey) -> sqlx::Result<()>;
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, ToSchema)]
@@ -90,8 +89,7 @@ impl SubscriptionDb for PostgresSubscriptionDb {
         public_key: &PublicKey,
         blind_module: &BlindModule,
     ) -> sqlx::Result<Option<DateTime<Utc>>> {
-        self.do_find_subscription_end(public_key, blind_module, &self.pool.0, false)
-            .await
+        self.do_find_subscription_end(public_key, blind_module, &self.pool.0, false).await
     }
 
     async fn credit_payment(
@@ -101,9 +99,8 @@ impl SubscriptionDb for PostgresSubscriptionDb {
         blind_module: &BlindModule,
     ) -> Result<(), CreditPaymentError> {
         let mut tx = self.pool.0.begin().await?;
-        let subscription_ends_at = self
-            .do_find_subscription_end(&public_key, blind_module, tx.deref_mut(), true)
-            .await?;
+        let subscription_ends_at =
+            self.do_find_subscription_end(&public_key, blind_module, tx.deref_mut(), true).await?;
         if let Some(ends_at) = subscription_ends_at {
             if ends_at > Utc::now() + self.config.renewal_threshold {
                 info!("Subscription can't be renewed because it ends at {ends_at}");
@@ -133,11 +130,7 @@ impl SubscriptionDb for PostgresSubscriptionDb {
         Ok(())
     }
 
-    async fn store_invalid_payment(
-        &self,
-        tx_hash: &str,
-        public_key: PublicKey,
-    ) -> sqlx::Result<()> {
+    async fn store_invalid_payment(&self, tx_hash: &str, public_key: PublicKey) -> sqlx::Result<()> {
         let public_key: String = public_key.to_sec1_bytes().encode_hex();
         query("INSERT INTO payments (tx_hash, subscription_public_key, is_valid) VALUES ($1, $2, false)")
             .bind(tx_hash)

@@ -37,9 +37,7 @@ pub(crate) async fn handler(state: SharedState, auth: NucAuth) -> Result<Json<()
 
             let token = token.as_str().ok_or(HandlerError::StringToken)?;
             let envelope = NucTokenEnvelope::decode(token).map_err(HandlerError::MalformedToken)?;
-            let envelope = envelope
-                .validate_signatures()
-                .map_err(HandlerError::InvalidSignature)?;
+            let envelope = envelope.validate_signatures().map_err(HandlerError::InvalidSignature)?;
             let token = envelope.token().token();
 
             // The user sending the request must either be the issuer or the audience of the token
@@ -63,11 +61,7 @@ pub(crate) async fn handler(state: SharedState, auth: NucAuth) -> Result<Json<()
         return Ok(Json(()));
     }
     let hash = token.compute_hash();
-    let result = state
-        .databases
-        .revocations
-        .store_revocation(&hash, expires_at)
-        .await;
+    let result = state.databases.revocations.store_revocation(&hash, expires_at).await;
     match result {
         Ok(_) => {
             info!("Revoked token {hash}, expires at {expires_at}");
@@ -100,22 +94,11 @@ impl IntoResponse for HandlerError {
         let discriminant = HandlerErrorDiscriminants::from(&self);
         let (code, message) = match self {
             Self::Database => (StatusCode::INTERNAL_SERVER_ERROR, "database error".into()),
-            Self::InvalidCommand => (
-                StatusCode::BAD_REQUEST,
-                format!("expected command {}", *REVOCATION_CMD),
-            ),
-            Self::InvalidSignature(e) => {
-                (StatusCode::BAD_REQUEST, format!("invalid signature: {e}"))
-            }
-            Self::IssuerNotAllowed => (
-                StatusCode::BAD_REQUEST,
-                "invocation issuer not allowed to revoke token".into(),
-            ),
+            Self::InvalidCommand => (StatusCode::BAD_REQUEST, format!("expected command {}", *REVOCATION_CMD)),
+            Self::InvalidSignature(e) => (StatusCode::BAD_REQUEST, format!("invalid signature: {e}")),
+            Self::IssuerNotAllowed => (StatusCode::BAD_REQUEST, "invocation issuer not allowed to revoke token".into()),
             Self::MalformedToken(e) => (StatusCode::BAD_REQUEST, format!("malformed token: {e}")),
-            Self::MissingToken => (
-                StatusCode::BAD_REQUEST,
-                format!("missing `{TOKEN_ARG}` in NUC args"),
-            ),
+            Self::MissingToken => (StatusCode::BAD_REQUEST, format!("missing `{TOKEN_ARG}` in NUC args")),
             Self::NeedInvocation => (
                 // this should have been caught by the token validator, hence the 500 status code
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -126,10 +109,7 @@ impl IntoResponse for HandlerError {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "no expiration time found in token chain".into(),
             ),
-            Self::StringToken => (
-                StatusCode::BAD_REQUEST,
-                format!("expected string token in `{TOKEN_ARG}` arg"),
-            ),
+            Self::StringToken => (StatusCode::BAD_REQUEST, format!("expected string token in `{TOKEN_ARG}` arg")),
         };
         let response = RequestHandlerError::new(message, format!("{discriminant:?}"));
         (code, Json(response)).into_response()
@@ -144,8 +124,8 @@ mod tests {
     use chrono::{DateTime, Utc};
     use mockall::predicate::eq;
     use nillion_nucs::{
-        builder::NucTokenBuilder, did::Did, k256::SecretKey, token::JsonObject,
-        validator::ValidatedNucToken, DidMethod, Keypair,
+        builder::NucTokenBuilder, did::Did, k256::SecretKey, token::JsonObject, validator::ValidatedNucToken,
+        DidMethod, Keypair,
     };
     use serde_json::json;
 
@@ -155,28 +135,15 @@ mod tests {
     }
 
     impl Handler {
-        async fn invoke(
-            self,
-            key: &SecretKey,
-            token_builder: NucTokenBuilder,
-        ) -> Result<(), HandlerError> {
+        async fn invoke(self, key: &SecretKey, token_builder: NucTokenBuilder) -> Result<(), HandlerError> {
             let state = self.builder.build();
             let keypair = Keypair::from_bytes(key.to_bytes().as_ref());
             let signer = keypair.signer(DidMethod::Key);
             let token = token_builder.build(&signer).await.unwrap();
 
-            let token = NucTokenEnvelope::decode(&token)
-                .expect("invalid token")
-                .into_parts()
-                .0
-                .into_token();
-            let validated_token = ValidatedNucToken {
-                token,
-                proofs: Vec::new(),
-            };
-            handler(State(state), NucAuth(validated_token))
-                .await
-                .map(|r| r.0)
+            let token = NucTokenEnvelope::decode(&token).expect("invalid token").into_parts().0.into_token();
+            let validated_token = ValidatedNucToken { token, proofs: Vec::new() };
+            handler(State(state), NucAuth(validated_token)).await.map(|r| r.0)
         }
     }
 
@@ -190,10 +157,7 @@ mod tests {
         }
     }
 
-    async fn make_revoked_token(
-        audience_key: &SecretKey,
-        expires_at: Option<DateTime<Utc>>,
-    ) -> String {
+    async fn make_revoked_token(audience_key: &SecretKey, expires_at: Option<DateTime<Utc>>) -> String {
         let mut builder = NucTokenBuilder::delegation([])
             .command(["nil", "hello"])
             .audience(Did::key(audience_key.public_key().to_bytes()))
@@ -205,10 +169,7 @@ mod tests {
         let keypair = Keypair::generate();
         let signer = keypair.signer(DidMethod::Key);
 
-        builder
-            .build(&signer)
-            .await
-            .expect("failed to build token to revoke")
+        builder.build(&signer).await.expect("failed to build token to revoke")
     }
 
     #[tokio::test]
@@ -218,16 +179,12 @@ mod tests {
         let now = DateTime::from_timestamp(1743088537, 0).unwrap();
         let expires_at = DateTime::from_timestamp(1743088536, 0).unwrap();
         let revoked_token = make_revoked_token(&invoker_key, Some(expires_at)).await;
-        let hash = NucTokenEnvelope::decode(&revoked_token)
-            .unwrap()
-            .token()
-            .compute_hash();
+        let hash = NucTokenEnvelope::decode(&revoked_token).unwrap().token().compute_hash();
 
-        let auth_token_builder =
-            NucTokenBuilder::invocation(json!({"token": revoked_token}).into_object())
-                .command(["nuc", "revoke"])
-                .subject(Did::key([0xaa; 33]))
-                .audience(Did::key(handler.builder.public_key().try_into().unwrap()));
+        let auth_token_builder = NucTokenBuilder::invocation(json!({"token": revoked_token}).into_object())
+            .command(["nuc", "revoke"])
+            .subject(Did::key([0xaa; 33]))
+            .audience(Did::key(handler.builder.public_key().try_into().unwrap()));
 
         handler
             .builder
@@ -235,15 +192,8 @@ mod tests {
             .expect_store_revocation()
             .with(eq(hash), eq(expires_at))
             .return_once(move |_, _| Ok(()));
-        handler
-            .builder
-            .time_service
-            .expect_current_time()
-            .return_once(move || now);
-        handler
-            .invoke(&invoker_key, auth_token_builder)
-            .await
-            .expect("handler failed");
+        handler.builder.time_service.expect_current_time().return_once(move || now);
+        handler.invoke(&invoker_key, auth_token_builder).await.expect("handler failed");
     }
 
     #[tokio::test]
@@ -252,16 +202,12 @@ mod tests {
         let invoker_key = SecretKey::random(&mut rand::thread_rng());
         let expires_at = DateTime::from_timestamp(1743088536, 0).unwrap();
         let revoked_token = make_revoked_token(&invoker_key, Some(expires_at)).await;
-        let auth_token_builder =
-            NucTokenBuilder::invocation(json!({"token": revoked_token}).into_object())
-                .command(["nil", "db"])
-                .subject(Did::key([0xaa; 33]))
-                .audience(Did::key(handler.builder.public_key().try_into().unwrap()));
+        let auth_token_builder = NucTokenBuilder::invocation(json!({"token": revoked_token}).into_object())
+            .command(["nil", "db"])
+            .subject(Did::key([0xaa; 33]))
+            .audience(Did::key(handler.builder.public_key().try_into().unwrap()));
 
-        let err = handler
-            .invoke(&invoker_key, auth_token_builder)
-            .await
-            .expect_err("handler succeeded");
+        let err = handler.invoke(&invoker_key, auth_token_builder).await.expect_err("handler succeeded");
         assert!(matches!(err, HandlerError::InvalidCommand), "{err:?}");
     }
 
@@ -274,10 +220,7 @@ mod tests {
             .subject(Did::key([0xaa; 33]))
             .audience(Did::key(handler.builder.public_key().try_into().unwrap()));
 
-        let err = handler
-            .invoke(&invoker_key, auth_token_builder)
-            .await
-            .expect_err("handler succeeded");
+        let err = handler.invoke(&invoker_key, auth_token_builder).await.expect_err("handler succeeded");
         assert!(matches!(err, HandlerError::MissingToken), "{err:?}");
     }
 
@@ -285,16 +228,12 @@ mod tests {
     async fn invalid_token_arg() {
         let handler = Handler::default();
         let invoker_key = SecretKey::random(&mut rand::thread_rng());
-        let auth_token_builder =
-            NucTokenBuilder::invocation(json!({"token": "beep"}).into_object())
-                .command(["nuc", "revoke"])
-                .subject(Did::key([0xaa; 33]))
-                .audience(Did::key(handler.builder.public_key().try_into().unwrap()));
+        let auth_token_builder = NucTokenBuilder::invocation(json!({"token": "beep"}).into_object())
+            .command(["nuc", "revoke"])
+            .subject(Did::key([0xaa; 33]))
+            .audience(Did::key(handler.builder.public_key().try_into().unwrap()));
 
-        let err = handler
-            .invoke(&invoker_key, auth_token_builder)
-            .await
-            .expect_err("handler succeeded");
+        let err = handler.invoke(&invoker_key, auth_token_builder).await.expect_err("handler succeeded");
         assert!(matches!(err, HandlerError::MalformedToken(_)), "{err:?}");
     }
 
@@ -303,18 +242,13 @@ mod tests {
         let handler = Handler::default();
         let invoker_key = SecretKey::random(&mut rand::thread_rng());
         // create a token where the audience is some other random key
-        let revoked_token =
-            make_revoked_token(&SecretKey::random(&mut rand::thread_rng()), None).await;
-        let auth_token_builder =
-            NucTokenBuilder::invocation(json!({"token": revoked_token}).into_object())
-                .command(["nuc", "revoke"])
-                .subject(Did::key([0xaa; 33]))
-                .audience(Did::key(handler.builder.public_key().try_into().unwrap()));
+        let revoked_token = make_revoked_token(&SecretKey::random(&mut rand::thread_rng()), None).await;
+        let auth_token_builder = NucTokenBuilder::invocation(json!({"token": revoked_token}).into_object())
+            .command(["nuc", "revoke"])
+            .subject(Did::key([0xaa; 33]))
+            .audience(Did::key(handler.builder.public_key().try_into().unwrap()));
 
-        let err = handler
-            .invoke(&invoker_key, auth_token_builder)
-            .await
-            .expect_err("handler succeeded");
+        let err = handler.invoke(&invoker_key, auth_token_builder).await.expect_err("handler succeeded");
         assert!(matches!(err, HandlerError::IssuerNotAllowed), "{err:?}");
     }
 }

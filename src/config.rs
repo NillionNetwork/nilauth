@@ -26,8 +26,8 @@ pub struct Config {
 
 impl Config {
     pub fn load(path: Option<&str>) -> anyhow::Result<Self> {
-        let mut builder = config::Config::builder()
-            .add_source(config::Environment::with_prefix("NILAUTH").separator("__"));
+        let mut builder =
+            config::Config::builder().add_source(config::Environment::with_prefix("NILAUTH").separator("__"));
         if let Some(path) = path {
             builder = builder.add_source(config::File::new(path, config::FileFormat::Yaml));
         }

@@ -7,10 +7,10 @@ use axum::{
     Extension, Router,
 };
 use convert_case::{Case, Casing};
+use nillion_nucs::k256::PublicKey;
 use nillion_nucs::{validator::NucValidator, DidMethod};
 use serde::Serialize;
 use std::{ops::Deref, sync::Arc};
-use nillion_nucs::k256::PublicKey;
 use utoipa::{
     openapi::{InfoBuilder, OpenApiBuilder},
     ToSchema,
@@ -30,15 +30,15 @@ pub fn build_router(state: AppState) -> Router {
     let validator = NucValidator::new(&[public_key]);
     let nilauth_did = state.parameters.keypair.to_did(DidMethod::Key);
     let validator_state = TokenValidatorState::new(validator, nilauth_did);
-    let openapi = OpenApiBuilder::new().info(
-        InfoBuilder::new()
-            .title("nilauth API")
-            .description(Some(
-                "nilauth allows users to authenticate against the different Nillion blind modules",
-            ))
-            .version(env!("CARGO_PKG_VERSION"))
-            .build()
-    ).build();
+    let openapi = OpenApiBuilder::new()
+        .info(
+            InfoBuilder::new()
+                .title("nilauth API")
+                .description(Some("nilauth allows users to authenticate against the different Nillion blind modules"))
+                .version(env!("CARGO_PKG_VERSION"))
+                .build(),
+        )
+        .build();
     let (router, openapi) = OpenApiRouter::with_openapi(openapi)
         .routes(routes!(about::handler))
         .routes(routes!(health::handler))
@@ -73,10 +73,7 @@ pub struct RequestHandlerError {
 impl RequestHandlerError {
     pub(crate) fn new(message: impl Into<String>, error_code: impl AsRef<str>) -> Self {
         let error_code = error_code.as_ref().to_case(Case::UpperSnake);
-        Self {
-            message: message.into(),
-            error_code,
-        }
+        Self { message: message.into(), error_code }
     }
 }
 
