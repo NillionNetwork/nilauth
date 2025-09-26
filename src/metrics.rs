@@ -72,23 +72,17 @@ mod collector {
             gauge!("process_threads").set(stat.num_threads as f64);
 
             if let Ok(io) = metrics.io() {
-                let operation_values = [
-                    ("read", io.read_bytes, io.syscr),
-                    ("write", io.write_bytes, io.syscw),
-                ];
+                let operation_values = [("read", io.read_bytes, io.syscr), ("write", io.write_bytes, io.syscw)];
                 for (operation, bytes, syscalls) in operation_values {
                     // See notes on gauge vs counter semantics needed for CPU time.
                     counter!("storage_io_bytes_total", "operation" => operation).absolute(bytes);
-                    counter!("storage_io_syscalls_total", "operation" => operation)
-                        .absolute(syscalls);
+                    counter!("storage_io_syscalls_total", "operation" => operation).absolute(syscalls);
                 }
             }
 
             if let Ok(net) = metrics.tcp() {
-                let established_count = net
-                    .iter()
-                    .filter(|connection| connection.state == TcpState::Established)
-                    .count() as f64;
+                let established_count =
+                    net.iter().filter(|connection| connection.state == TcpState::Established).count() as f64;
                 gauge!("established_tcp_connections").set(established_count);
             }
         }

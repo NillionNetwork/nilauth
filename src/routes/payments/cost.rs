@@ -35,11 +35,7 @@ pub(crate) async fn handler(
     path: Query<GetCostArgs>,
     state: SharedState,
 ) -> Result<Json<GetCostResponse>, HandlerError> {
-    let result = state
-        .services
-        .subscription_cost
-        .blind_module_cost(path.blind_module)
-        .await;
+    let result = state.services.subscription_cost.blind_module_cost(path.blind_module).await;
     match result {
         Ok(cost) => Ok(Json(GetCostResponse { cost_unils: cost })),
         Err(_) => Err(HandlerError::Internal),
