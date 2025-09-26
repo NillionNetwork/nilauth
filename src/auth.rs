@@ -68,7 +68,7 @@ mod tests {
     use super::*;
     use crate::tests::random_public_key;
     use axum::http::Request;
-    use nillion_nucs::{builder::NucTokenBuilder, DidMethod, Keypair};
+    use nillion_nucs::{builder::InvocationBuilder, DidMethod, Keypair};
 
     struct NucAuthBuilder {
         validator: NucValidator,
@@ -99,11 +99,11 @@ mod tests {
     async fn valid_token() {
         let builder = NucAuthBuilder::default();
         let signer = Keypair::generate().signer(DidMethod::Key);
-        let serialized_token = NucTokenBuilder::invocation(Default::default())
+        let serialized_token = InvocationBuilder::new()
             .command(["nil"])
             .audience(builder.nilauth_did.clone())
             .subject(Did::key(random_public_key()))
-            .build(&signer)
+            .sign_and_serialize(&signer)
             .await
             .expect("failed to build token");
         let token = NucTokenEnvelope::decode(&serialized_token).unwrap();
@@ -122,11 +122,11 @@ mod tests {
     async fn invalid_signature() {
         let builder = NucAuthBuilder::default();
         let signer = Keypair::generate().signer(DidMethod::Key);
-        let token = NucTokenBuilder::invocation(Default::default())
+        let token = InvocationBuilder::new()
             .command(["nil"])
             .audience(builder.nilauth_did.clone())
             .subject(Did::key(random_public_key()))
-            .build(&signer)
+            .sign_and_serialize(&signer)
             .await
             .expect("failed to build token");
         let (head, _) = token.rsplit_once('.').unwrap();

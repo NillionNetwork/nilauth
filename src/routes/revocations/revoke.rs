@@ -119,12 +119,15 @@ impl IntoResponse for HandlerError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::{AppStateBuilder, PublicKeyExt};
+    use crate::tests::AppStateBuilder;
     use axum::extract::State;
     use chrono::{DateTime, Utc};
     use mockall::predicate::eq;
     use nillion_nucs::{
-        builder::NucTokenBuilder, did::Did, k256::SecretKey, token::JsonObject, validator::ValidatedNucToken,
+        builder::{DelegationBuilder, InvocationBuilder},
+        did::Did,
+        k256::SecretKey,
+        validator::ValidatedNucToken,
         DidMethod, Keypair,
     };
     use serde_json::json;
@@ -135,11 +138,11 @@ mod tests {
     }
 
     impl Handler {
-        async fn invoke(self, key: &SecretKey, token_builder: NucTokenBuilder) -> Result<(), HandlerError> {
+        async fn invoke(self, key: &SecretKey, token_builder: InvocationBuilder) -> Result<(), HandlerError> {
             let state = self.builder.build();
             let keypair = Keypair::from_bytes(key.to_bytes().as_ref());
             let signer = keypair.signer(DidMethod::Key);
-            let token = token_builder.build(&signer).await.unwrap();
+            let token = token_builder.sign_and_serialize(&signer).await.unwrap();
 
             let token = NucTokenEnvelope::decode(&token).expect("invalid token").into_parts().0.into_token();
             let validated_token = ValidatedNucToken { token, proofs: Vec::new() };
@@ -147,20 +150,10 @@ mod tests {
         }
     }
 
-    trait JsonValueExt {
-        fn into_object(self) -> JsonObject;
-    }
-
-    impl JsonValueExt for serde_json::Value {
-        fn into_object(self) -> JsonObject {
-            self.as_object().cloned().expect("not an object")
-        }
-    }
-
     async fn make_revoked_token(audience_key: &SecretKey, expires_at: Option<DateTime<Utc>>) -> String {
-        let mut builder = NucTokenBuilder::delegation([])
+        let mut builder = DelegationBuilder::new()
             .command(["nil", "hello"])
-            .audience(Did::key(audience_key.public_key().to_bytes()))
+            .audience(Did::key(audience_key.public_key().to_sec1_bytes().as_ref().try_into().unwrap()))
             .subject(Did::key([0xaa; 33]));
         if let Some(expires_at) = expires_at {
             builder = builder.expires_at(expires_at);
@@ -169,7 +162,7 @@ mod tests {
         let keypair = Keypair::generate();
         let signer = keypair.signer(DidMethod::Key);
 
-        builder.build(&signer).await.expect("failed to build token to revoke")
+        builder.sign_and_serialize(&signer).await.expect("failed to build token to revoke")
     }
 
     #[tokio::test]
@@ -181,7 +174,8 @@ mod tests {
         let revoked_token = make_revoked_token(&invoker_key, Some(expires_at)).await;
         let hash = NucTokenEnvelope::decode(&revoked_token).unwrap().token().compute_hash();
 
-        let auth_token_builder = NucTokenBuilder::invocation(json!({"token": revoked_token}).into_object())
+        let auth_token_builder = InvocationBuilder::new()
+            .arguments(json!({"token": revoked_token}))
             .command(["nuc", "revoke"])
             .subject(Did::key([0xaa; 33]))
             .audience(Did::key(handler.builder.public_key().try_into().unwrap()));
@@ -202,7 +196,8 @@ mod tests {
         let invoker_key = SecretKey::random(&mut rand::thread_rng());
         let expires_at = DateTime::from_timestamp(1743088536, 0).unwrap();
         let revoked_token = make_revoked_token(&invoker_key, Some(expires_at)).await;
-        let auth_token_builder = NucTokenBuilder::invocation(json!({"token": revoked_token}).into_object())
+        let auth_token_builder = InvocationBuilder::new()
+            .arguments(json!({"token": revoked_token}))
             .command(["nil", "db"])
             .subject(Did::key([0xaa; 33]))
             .audience(Did::key(handler.builder.public_key().try_into().unwrap()));
@@ -215,7 +210,7 @@ mod tests {
     async fn missing_token_arg() {
         let handler = Handler::default();
         let invoker_key = SecretKey::random(&mut rand::thread_rng());
-        let auth_token_builder = NucTokenBuilder::invocation(Default::default())
+        let auth_token_builder = InvocationBuilder::new()
             .command(["nuc", "revoke"])
             .subject(Did::key([0xaa; 33]))
             .audience(Did::key(handler.builder.public_key().try_into().unwrap()));
@@ -228,7 +223,8 @@ mod tests {
     async fn invalid_token_arg() {
         let handler = Handler::default();
         let invoker_key = SecretKey::random(&mut rand::thread_rng());
-        let auth_token_builder = NucTokenBuilder::invocation(json!({"token": "beep"}).into_object())
+        let auth_token_builder = InvocationBuilder::new()
+            .arguments(json!({"token": "beep"}))
             .command(["nuc", "revoke"])
             .subject(Did::key([0xaa; 33]))
             .audience(Did::key(handler.builder.public_key().try_into().unwrap()));
@@ -243,7 +239,8 @@ mod tests {
         let invoker_key = SecretKey::random(&mut rand::thread_rng());
         // create a token where the audience is some other random key
         let revoked_token = make_revoked_token(&SecretKey::random(&mut rand::thread_rng()), None).await;
-        let auth_token_builder = NucTokenBuilder::invocation(json!({"token": revoked_token}).into_object())
+        let auth_token_builder = InvocationBuilder::new()
+            .arguments(json!({"token": revoked_token}))
             .command(["nuc", "revoke"])
             .subject(Did::key([0xaa; 33]))
             .audience(Did::key(handler.builder.public_key().try_into().unwrap()));

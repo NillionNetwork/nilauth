@@ -101,7 +101,7 @@ impl IntoResponse for HandlerError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::{AppStateBuilder, PublicKeyExt};
+    use crate::tests::AppStateBuilder;
     use axum::extract::State;
     use mockall::predicate::eq;
     use nillion_nucs::k256::SecretKey;
@@ -145,7 +145,10 @@ mod tests {
         let renewal_threshold = Duration::from_secs(30);
         handler.builder.subscription_renewal_threshold = renewal_threshold;
 
-        let request = SubscriptionStatusArgs { public_key: key.public_key().to_bytes(), blind_module };
+        let request = SubscriptionStatusArgs {
+            public_key: key.public_key().to_sec1_bytes().as_ref().try_into().unwrap(),
+            blind_module,
+        };
         let response = handler.invoke(request).await.expect("handler failed");
         assert!(response.subscribed);
         assert_eq!(
@@ -170,7 +173,10 @@ mod tests {
             .with(eq(key.public_key()), eq(blind_module))
             .return_once(move |_, _| Ok(Some(timestamp)));
 
-        let request = SubscriptionStatusArgs { public_key: key.public_key().to_bytes(), blind_module };
+        let request = SubscriptionStatusArgs {
+            public_key: key.public_key().to_sec1_bytes().as_ref().try_into().unwrap(),
+            blind_module,
+        };
         let response = handler.invoke(request).await.expect("handler failed");
         assert!(!response.subscribed);
         response.details.expect("subscription should still be returned");

@@ -8,7 +8,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use metrics::counter;
-use nillion_nucs::{builder::NucTokenBuilder, did::Did, DidMethod};
+use nillion_nucs::{builder::DelegationBuilder, did::Did, DidMethod};
 use serde::{Deserialize, Serialize};
 use strum::EnumDiscriminants;
 use tracing::{error, info};
@@ -98,12 +98,12 @@ pub(crate) async fn handler(
 
     info!("Minting token for {requestor_did}, expires at '{expires_at}'");
     let signer = state.parameters.keypair.signer(DidMethod::Key);
-    let token = NucTokenBuilder::delegation([])
+    let token = DelegationBuilder::new()
         .command(["nil", segment])
         .subject(requestor_did.clone())
         .audience(requestor_did)
         .expires_at(expires_at)
-        .build(&signer)
+        .sign_and_serialize(&signer)
         .await
         .map_err(|e| {
             error!("Failed to sign token: {e}");

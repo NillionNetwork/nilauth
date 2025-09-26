@@ -28,13 +28,13 @@ impl SignedRequest {
     where
         T: serde::Serialize,
     {
-        use crate::tests::PublicKeyExt;
         use nillion_nucs::k256::ecdsa::{signature::Signer, SigningKey};
 
         let payload = serde_json::to_string(&payload).expect("failed to serialize payload");
         let signature: Signature = SigningKey::from(key.clone()).sign(payload.as_bytes());
         let signature = signature.to_bytes().try_into().unwrap();
-        SignedRequest { public_key: key.public_key().to_bytes(), signature, payload: payload.as_bytes().to_vec() }
+        let public_key_bytes: [u8; 33] = key.public_key().to_sec1_bytes().as_ref().try_into().unwrap();
+        SignedRequest { public_key: public_key_bytes, signature, payload: payload.as_bytes().to_vec() }
     }
 
     pub(crate) fn verify(self) -> Result<PublicKey, VerificationError> {

@@ -180,7 +180,7 @@ impl IntoResponse for HandlerError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::{random_public_key, AppStateBuilder, PublicKeyExt};
+    use crate::tests::{random_public_key, AppStateBuilder};
     use axum::extract::State;
     use mockall::predicate::eq;
     use nilauth_client::nilchain_client::{transactions::TokenAmount, tx::PaymentTransaction};
@@ -235,7 +235,11 @@ mod tests {
             .with(eq(blind_module))
             .return_once(|_| Ok(1));
         handler
-            .invoke(ValidatePaymentRequest { tx_hash, payload, public_key: public_key.to_bytes() })
+            .invoke(ValidatePaymentRequest {
+                tx_hash,
+                payload,
+                public_key: public_key.to_sec1_bytes().as_ref().try_into().unwrap(),
+            })
             .await
             .expect("request failed");
     }
@@ -266,7 +270,11 @@ mod tests {
             .with(eq(blind_module))
             .return_once(|_| Ok(1_000_000));
         handler
-            .invoke(ValidatePaymentRequest { tx_hash, payload, public_key: public_key.to_bytes() })
+            .invoke(ValidatePaymentRequest {
+                tx_hash,
+                payload,
+                public_key: public_key.to_sec1_bytes().as_ref().try_into().unwrap(),
+            })
             .await
             .expect_err("request succeeded");
     }
@@ -299,7 +307,11 @@ mod tests {
             .with(eq(tx_hash.clone()), eq(public_key.clone()))
             .return_once(|_, _| Ok(()));
         let err = handler
-            .invoke(ValidatePaymentRequest { tx_hash, payload, public_key: public_key.to_bytes() })
+            .invoke(ValidatePaymentRequest {
+                tx_hash,
+                payload,
+                public_key: public_key.to_sec1_bytes().as_ref().try_into().unwrap(),
+            })
             .await
             .expect_err("request succeeded");
         assert!(matches!(err, HandlerError::HashMismatch));
