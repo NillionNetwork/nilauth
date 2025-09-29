@@ -7,7 +7,6 @@ use axum::{
     Extension, Router,
 };
 use convert_case::{Case, Casing};
-use nillion_nucs::k256::PublicKey;
 use nillion_nucs::{validator::NucValidator, DidMethod};
 use serde::Serialize;
 use std::{ops::Deref, sync::Arc};
@@ -26,8 +25,8 @@ pub(crate) mod subscriptions;
 
 pub fn build_router(state: AppState) -> Router {
     let state = Arc::new(state);
-    let public_key = PublicKey::from_sec1_bytes(&state.parameters.keypair.public_key()).unwrap();
-    let validator = NucValidator::new(&[public_key]);
+    let public_key = state.parameters.keypair.public_key();
+    let validator = NucValidator::new([public_key]).expect("Failed to create NucValidator from service public key.");
     let nilauth_did = state.parameters.keypair.to_did(DidMethod::Key);
     let validator_state = TokenValidatorState::new(validator, nilauth_did);
     let openapi = OpenApiBuilder::new()

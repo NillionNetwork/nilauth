@@ -1,5 +1,5 @@
 use crate::{
-    auth::NucAuth,
+    auth::CapabilityNuc,
     db::revocations::StoreRevocationError,
     routes::{Json, RequestHandlerError},
     state::SharedState,
@@ -27,7 +27,7 @@ static REVOCATION_CMD: LazyLock<Command> = LazyLock::new(|| ["nuc", "revoke"].in
         (status = 400, body = RequestHandlerError),
     )
 )]
-pub(crate) async fn handler(state: SharedState, auth: NucAuth) -> Result<Json<()>, HandlerError> {
+pub(crate) async fn handler(state: SharedState, auth: CapabilityNuc) -> Result<Json<()>, HandlerError> {
     if auth.0.token.command != *REVOCATION_CMD {
         return Err(HandlerError::InvalidCommand);
     }
@@ -146,7 +146,7 @@ mod tests {
 
             let token = NucTokenEnvelope::decode(&token).expect("invalid token").into_parts().0.into_token();
             let validated_token = ValidatedNucToken { token, proofs: Vec::new() };
-            handler(State(state), NucAuth(validated_token)).await.map(|r| r.0)
+            handler(State(state), CapabilityNuc(validated_token)).await.map(|r| r.0)
         }
     }
 

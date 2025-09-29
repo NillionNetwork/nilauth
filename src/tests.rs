@@ -4,7 +4,7 @@ use crate::services::subscription_cost::MockSubscriptionCostService;
 use crate::state::{AppState, Databases, Parameters, Services};
 use crate::time::MockTimeService;
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use mockall::mock;
 use nilauth_client::nilchain_client::tx::{PaymentTransaction, PaymentTransactionRetriever, RetrieveError};
 use nillion_nucs::Keypair;
@@ -76,12 +76,6 @@ impl AppStateBuilder {
 
     pub(crate) fn public_key(&self) -> Vec<u8> {
         self.keypair.public_key().to_vec()
-    }
-
-    pub(crate) fn set_current_time(&mut self, timestamp: DateTime<Utc>) {
-        // reset any expectations and set a new one
-        self.time_service.checkpoint();
-        self.time_service.expect_current_time().returning(move || timestamp);
     }
 }
 

@@ -2,8 +2,7 @@ use super::PostgresPool;
 use crate::config::SubscriptionConfig;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use hex::ToHex;
-use nillion_nucs::k256::PublicKey;
+use nillion_nucs::did::Did;
 use serde::{Deserialize, Serialize};
 use sqlx::{prelude::FromRow, query, query_as, Executor, Postgres};
 use std::{fmt, ops::DerefMut};
@@ -15,18 +14,18 @@ use utoipa::ToSchema;
 pub(crate) trait SubscriptionDb: Send + Sync + 'static {
     async fn find_subscription_end(
         &self,
-        public_key: &PublicKey,
+        subscriber_did: &Did,
         blind_module: &BlindModule,
     ) -> sqlx::Result<Option<DateTime<Utc>>>;
 
     async fn credit_payment(
         &self,
         tx_hash: &str,
-        public_key: PublicKey,
+        subscriber_did: &Did,
         blind_module: &BlindModule,
     ) -> Result<(), CreditPaymentError>;
 
-    async fn store_invalid_payment(&self, tx_hash: &str, public_key: PublicKey) -> sqlx::Result<()>;
+    async fn store_invalid_payment(&self, tx_hash: &str, subscriber_did: &Did) -> sqlx::Result<()>;
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, ToSchema)]
@@ -57,7 +56,7 @@ impl PostgresSubscriptionDb {
 
     async fn do_find_subscription_end<'a, E>(
         &self,
-        public_key: &PublicKey,
+        subscriber_did: &Did,
         blind_module: &BlindModule,
         executor: E,
         for_update: bool,
@@ -69,12 +68,12 @@ impl PostgresSubscriptionDb {
         struct Row {
             ends_at: DateTime<Utc>,
         }
-        let public_key: String = public_key.to_sec1_bytes().encode_hex();
+        let subscriber_did_str = subscriber_did.to_string();
         let for_update_suffix = if for_update { " FOR UPDATE" } else { "" };
         let row: Option<Row> = query_as(&format!(
-            "SELECT ends_at FROM subscriptions WHERE public_key = $1 AND blind_module = $2{for_update_suffix}"
+            "SELECT ends_at FROM subscriptions WHERE subscriber_did = $1 AND blind_module = $2{for_update_suffix}"
         ))
-        .bind(&public_key)
+        .bind(&subscriber_did_str)
         .bind(blind_module.to_string())
         .fetch_optional(executor)
         .await?;
@@ -86,21 +85,21 @@ impl PostgresSubscriptionDb {
 impl SubscriptionDb for PostgresSubscriptionDb {
     async fn find_subscription_end(
         &self,
-        public_key: &PublicKey,
+        subscriber_did: &Did,
         blind_module: &BlindModule,
     ) -> sqlx::Result<Option<DateTime<Utc>>> {
-        self.do_find_subscription_end(public_key, blind_module, &self.pool.0, false).await
+        self.do_find_subscription_end(subscriber_did, blind_module, &self.pool.0, false).await
     }
 
     async fn credit_payment(
         &self,
         tx_hash: &str,
-        public_key: PublicKey,
+        subscriber_did: &Did,
         blind_module: &BlindModule,
     ) -> Result<(), CreditPaymentError> {
         let mut tx = self.pool.0.begin().await?;
         let subscription_ends_at =
-            self.do_find_subscription_end(&public_key, blind_module, tx.deref_mut(), true).await?;
+            self.do_find_subscription_end(subscriber_did, blind_module, tx.deref_mut(), true).await?;
         if let Some(ends_at) = subscription_ends_at {
             if ends_at > Utc::now() + self.config.renewal_threshold {
                 info!("Subscription can't be renewed because it ends at {ends_at}");
@@ -108,10 +107,10 @@ impl SubscriptionDb for PostgresSubscriptionDb {
             }
         }
 
-        let public_key: String = public_key.to_sec1_bytes().encode_hex();
-        query("INSERT INTO payments (tx_hash, subscription_public_key, is_valid) VALUES ($1, $2, true)")
+        let subscriber_did_str = subscriber_did.to_string();
+        query("INSERT INTO payments (tx_hash, subscriber_did, is_valid) VALUES ($1, $2, true)")
             .bind(tx_hash)
-            .bind(&public_key)
+            .bind(&subscriber_did_str)
             .execute(tx.deref_mut())
             .await?;
 
@@ -121,8 +120,8 @@ impl SubscriptionDb for PostgresSubscriptionDb {
             .map(|ends_at| ends_at + self.config.length)
             .unwrap_or(default_ends_at)
             .max(default_ends_at);
-        query("INSERT INTO subscriptions (public_key, blind_module, ends_at) VALUES ($1, $2, $3) ON CONFLICT(public_key, blind_module) DO UPDATE SET ends_at = $3")
-            .bind(&public_key)
+        query("INSERT INTO subscriptions (subscriber_did, blind_module, ends_at) VALUES ($1, $2, $3) ON CONFLICT(subscriber_did, blind_module) DO UPDATE SET ends_at = $3")
+            .bind(&subscriber_did_str)
             .bind(blind_module.to_string())
             .bind(ends_at)
             .execute(tx.deref_mut()).await?;
@@ -130,11 +129,11 @@ impl SubscriptionDb for PostgresSubscriptionDb {
         Ok(())
     }
 
-    async fn store_invalid_payment(&self, tx_hash: &str, public_key: PublicKey) -> sqlx::Result<()> {
-        let public_key: String = public_key.to_sec1_bytes().encode_hex();
-        query("INSERT INTO payments (tx_hash, subscription_public_key, is_valid) VALUES ($1, $2, false)")
+    async fn store_invalid_payment(&self, tx_hash: &str, subscriber_did: &Did) -> sqlx::Result<()> {
+        let subscriber_did_str = subscriber_did.to_string();
+        query("INSERT INTO payments (tx_hash, subscriber_did, is_valid) VALUES ($1, $2, false)")
             .bind(tx_hash)
-            .bind(&public_key)
+            .bind(&subscriber_did_str)
             .execute(&self.pool.0)
             .await?;
         Ok(())
