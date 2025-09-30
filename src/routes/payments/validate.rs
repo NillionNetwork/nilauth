@@ -10,6 +10,7 @@ use metrics::counter;
 use nilauth_client::nilchain_client::tx::RetrieveError;
 use nillion_nucs::did::Did;
 use nillion_nucs::k256::sha2::{Digest, Sha256};
+use nillion_nucs::token::Command;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use strum::EnumDiscriminants;
@@ -63,6 +64,12 @@ pub(crate) async fn handler(
     auth: IdentityNuc,
     Json(request): Json<ValidatePaymentRequest>,
 ) -> Result<Json<()>, HandlerError> {
+    // Validate command scope
+    let expected_command: Command = ["nil", "auth", "payments", "validate"].into();
+    if auth.0.token.command != expected_command {
+        return Err(HandlerError::InvalidCommand(expected_command));
+    }
+
     // Verify that the Nuc subject matches the payload payer
     if auth.0.token.subject != request.payload.payer_did {
         return Err(HandlerError::PayerMismatch);
@@ -130,6 +137,7 @@ pub(crate) enum HandlerError {
     HashMismatch,
     InsufficientPayment,
     Internal,
+    InvalidCommand(Command),
     MalformedPayload(String),
     MalformedTransaction,
     PaymentAlreadyProcessed,
@@ -170,6 +178,9 @@ impl IntoResponse for HandlerError {
             Self::HashMismatch => (StatusCode::BAD_REQUEST, "payload hash does not match transaction nonce".into()),
             Self::InsufficientPayment => (StatusCode::PRECONDITION_FAILED, "insufficient payment".into()),
             Self::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()),
+            Self::InvalidCommand(expected) => {
+                (StatusCode::UNAUTHORIZED, format!("invalid command for identity token, expected '{expected}'"))
+            }
             Self::MalformedPayload(reason) => (StatusCode::BAD_REQUEST, format!("malformed payload: {reason}")),
             Self::UnknownPublicKey => (StatusCode::BAD_REQUEST, "payload public key is different from ours".into()),
             Self::TransactionNotCommitted => {
@@ -209,7 +220,7 @@ mod tests {
                     subject: request.payload.payer_did,
                     not_before: None,
                     expires_at: None,
-                    command: ["nil"].into(),
+                    command: ["nil", "auth", "payments", "validate"].into(),
                     body: nillion_nucs::token::TokenBody::Invocation(Default::default()),
                     meta: None,
                     nonce: vec![],

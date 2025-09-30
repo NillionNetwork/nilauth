@@ -10,6 +10,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use metrics::counter;
+use nillion_nucs::token::Command;
 use nillion_nucs::{builder::DelegationBuilder, did::Did, DidMethod};
 use serde::{Deserialize, Serialize};
 use strum::EnumDiscriminants;
@@ -80,11 +81,18 @@ pub(crate) async fn handler(
     request: Json<serde_json::Value>,
 ) -> Result<Json<CreateNucResponse>, HandlerError> {
     let (requestor_did, blind_module) = if let Some(auth) = opt_auth {
-        // Modern Flow: Nuc-based authentication using the subject as the requestor's identity
+        // This is the default flow which uses Nuc-based auth using the subject as the requestor's identity
+
+        // Validate command scope
+        let expected_command: Command = ["nil", "auth", "nucs", "create"].into();
+        if auth.0.token.command != expected_command {
+            return Err(HandlerError::InvalidCommand(expected_command));
+        }
+
         let modern_request: CreateNucRequest = serde_json::from_value(request.0)?;
         (auth.0.token.subject, modern_request.blind_module)
     } else {
-        // This is the legacy flow which uses signed payload authentication. This will be removed
+        // This is the legacy flow which uses signed payload auth. This will be removed
         // when support for `did:nil` is dropped in the next major version.
         let legacy_request: SignedRequest = serde_json::from_value(request.0)?;
         let payload: LegacySignablePayload = serde_json::from_slice(&legacy_request.payload)
@@ -146,6 +154,7 @@ async fn handle_nuc_creation(
 #[derive(Debug, EnumDiscriminants)]
 pub(crate) enum HandlerError {
     Internal,
+    InvalidCommand(Command),
     InvalidPublicKey,
     InvalidTargetPublicKey,
     InvalidSignature,
@@ -177,6 +186,9 @@ impl IntoResponse for HandlerError {
         let discriminant = HandlerErrorDiscriminants::from(&self);
         let (code, message) = match self {
             Self::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()),
+            Self::InvalidCommand(expected) => {
+                (StatusCode::UNAUTHORIZED, format!("invalid command for identity token, expected '{expected}'"))
+            }
             Self::InvalidPublicKey => (StatusCode::BAD_REQUEST, "invalid public key".into()),
             Self::InvalidTargetPublicKey => (StatusCode::BAD_REQUEST, "invalid target public key".into()),
             Self::InvalidSignature => (StatusCode::BAD_REQUEST, "invalid signature".into()),
