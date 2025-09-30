@@ -98,7 +98,7 @@ impl IntoResponse for HandlerError {
             Self::InvalidSignature(e) => (StatusCode::BAD_REQUEST, format!("invalid signature: {e}")),
             Self::IssuerNotAllowed => (StatusCode::BAD_REQUEST, "invocation issuer not allowed to revoke token".into()),
             Self::MalformedToken(e) => (StatusCode::BAD_REQUEST, format!("malformed token: {e}")),
-            Self::MissingToken => (StatusCode::BAD_REQUEST, format!("missing `{TOKEN_ARG}` in NUC args")),
+            Self::MissingToken => (StatusCode::BAD_REQUEST, format!("missing `{TOKEN_ARG}` in Nuc args")),
             Self::NeedInvocation => (
                 // this should have been caught by the token validator, hence the 500 status code
                 StatusCode::INTERNAL_SERVER_ERROR,

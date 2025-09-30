@@ -12,17 +12,21 @@ use utoipa::ToSchema;
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub(crate) trait RevocationDb: Send + Sync + 'static {
-    /// Store a revocation.
+    /// Store a revocation for a given token hash.
+    ///
+    /// This operation is idempotent. If the token is already revoked, it succeeds silently.
     async fn store_revocation(
         &self,
         revocation: &ProofHash,
         expires_at: DateTime<Utc>,
     ) -> Result<(), StoreRevocationError>;
 
-    /// Lookup revocations.
+    /// Lookup which of the given token hashes have been revoked.
     async fn lookup_revocations(&self, hashes: &[ProofHash]) -> Result<Vec<RevokedToken>, LookupRevocationError>;
 
-    /// Delete revoked tokens that expire before the given timestamp.
+    /// Delete revoked tokens that expired before the given threshold.
+    ///
+    /// Returns the number of deleted records.
     async fn delete_expired(&self, threshold: DateTime<Utc>) -> Result<u64, sqlx::Error>;
 }
 

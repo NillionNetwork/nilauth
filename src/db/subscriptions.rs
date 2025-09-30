@@ -9,15 +9,23 @@ use std::{fmt, ops::DerefMut};
 use tracing::{error, info};
 use utoipa::ToSchema;
 
+/// An interface for managing user subscriptions in the database.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub(crate) trait SubscriptionDb: Send + Sync + 'static {
+    /// Finds the expiration timestamp for a given subscriber and blind module.
+    ///
+    /// Returns `Ok(Some(DateTime<Utc>))` if a subscription exists, or `Ok(None)` if not.
     async fn find_subscription_end(
         &self,
         subscriber_did: &Did,
         blind_module: &BlindModule,
     ) -> sqlx::Result<Option<DateTime<Utc>>>;
 
+    /// Credits a payment to a subscriber, extending their subscription period.
+    ///
+    /// This operation is transactional and idempotent based on the `tx_hash`.
+    /// It will fail if the subscription is not yet within its renewable window.
     async fn credit_payment(
         &self,
         tx_hash: &str,
@@ -25,6 +33,9 @@ pub(crate) trait SubscriptionDb: Send + Sync + 'static {
         blind_module: &BlindModule,
     ) -> Result<(), CreditPaymentError>;
 
+    /// Stores a record of an invalid payment attempt.
+    ///
+    /// This is used to prevent replay attacks with invalid payloads.
     async fn store_invalid_payment(&self, tx_hash: &str, subscriber_did: &Did) -> sqlx::Result<()>;
 }
 

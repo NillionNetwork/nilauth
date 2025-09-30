@@ -10,9 +10,11 @@ use tracing::info;
 
 const PRICE_CACHE_DURATION: Duration = Duration::from_secs(60);
 
+/// A service for retrieving the current price of the NIL token in USD.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub(crate) trait TokenPriceService: Send + Sync + 'static {
+    /// Fetches the price of one NIL token in USD.
     async fn nil_token_price(&self) -> anyhow::Result<Decimal>;
 }
 

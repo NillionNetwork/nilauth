@@ -33,7 +33,7 @@ pub(crate) struct CreateNucRequest {
     blind_module: BlindModule,
 }
 
-/// The response to a NUC create request.
+/// The response to a Nuc create request.
 #[derive(Debug, Serialize, ToSchema)]
 pub(crate) struct CreateNucResponse {
     /// The token in JWT serialized form.
@@ -41,7 +41,7 @@ pub(crate) struct CreateNucResponse {
     token: String,
 }
 
-/// Optional identity NUC authentication wrapper that rejects invalid tokens
+/// Optional identity Nuc authentication wrapper that rejects invalid tokens
 pub(crate) struct OptionalIdentityNuc(Option<IdentityNuc>);
 
 impl<S> FromRequestParts<S> for OptionalIdentityNuc
@@ -64,12 +64,12 @@ where
     }
 }
 
-/// Create a NUC.
+/// Create a Nuc.
 #[utoipa::path(
     post,
     path = "/nucs/create",
     responses(
-        (status = OK, body = CreateNucResponse, description = "A NUC that can be used to delegate access to blind modules"),
+        (status = OK, body = CreateNucResponse, description = "A Nuc that can be used to delegate access to blind modules"),
         (status = 400, body = RequestHandlerError),
         (status = 412, body = RequestHandlerError),
     )
@@ -80,7 +80,7 @@ pub(crate) async fn handler(
     request: Json<serde_json::Value>,
 ) -> Result<Json<CreateNucResponse>, HandlerError> {
     let (requestor_did, blind_module) = if let Some(auth) = opt_auth {
-        // Modern Flow: NUC-based authentication using the subject as the requestor's identity
+        // Modern Flow: Nuc-based authentication using the subject as the requestor's identity
         let modern_request: CreateNucRequest = serde_json::from_value(request.0)?;
         (auth.0.token.subject, modern_request.blind_module)
     } else {

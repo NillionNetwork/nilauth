@@ -7,9 +7,11 @@ use tracing::error;
 
 pub(crate) static UNIL_IN_NIL: u64 = 1_000_000;
 
+/// A service for calculating the cost of a blind module subscription.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub(crate) trait SubscriptionCostService: Send + Sync + 'static {
+    /// Calculates the cost of a subscription for a specific blind module, returning the price in unils.
     async fn blind_module_cost(&self, blind_module: BlindModule) -> Result<u64, SubscriptionCostError>;
 }
 

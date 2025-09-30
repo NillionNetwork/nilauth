@@ -72,7 +72,7 @@ where
             (StatusCode::INTERNAL_SERVER_ERROR, Json(RequestHandlerError::new("internal error", "INTERNAL")))
         })?;
 
-        // Create a validator with no root keys to allow self-signed identity NUCs.
+        // Create a validator with no root keys to allow self-signed identity Nucs.
         let validator = NucValidator::new([]).unwrap();
         extract_and_validate_token(parts, &validator, &state.nilauth_did)
             .await
