@@ -1,4 +1,4 @@
-FROM rust:1.85-alpine AS build
+FROM rust:1.90-alpine AS build
 
 WORKDIR /opt/nillion
 
@@ -15,4 +15,3 @@ WORKDIR /opt/nillion
 COPY --from=build /opt/nillion/target/release/nilauth /opt/nillion
 
 ENTRYPOINT ["/opt/nillion/nilauth"]
-
