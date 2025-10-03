@@ -200,7 +200,7 @@ impl IntoResponse for HandlerError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::{random_public_key, AppStateBuilder};
+    use crate::tests::{AppStateBuilder, random_public_key};
     use axum::extract::State;
     use mockall::predicate::eq;
     use nilauth_client::nilchain_client::{transactions::TokenAmount, tx::PaymentTransaction};

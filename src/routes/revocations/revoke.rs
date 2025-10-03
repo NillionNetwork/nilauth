@@ -124,11 +124,11 @@ mod tests {
     use chrono::{DateTime, Utc};
     use mockall::predicate::eq;
     use nillion_nucs::{
+        DidMethod, Keypair,
         builder::{DelegationBuilder, InvocationBuilder},
         did::Did,
         k256::SecretKey,
         validator::ValidatedNucToken,
-        DidMethod, Keypair,
     };
     use serde_json::json;
 

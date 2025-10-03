@@ -1,6 +1,6 @@
+use nillion_nucs::k256::PublicKey;
 use nillion_nucs::k256::ecdsa::signature::Verifier;
 use nillion_nucs::k256::ecdsa::{Signature, VerifyingKey};
-use nillion_nucs::k256::PublicKey;
 use serde::Deserialize;
 use utoipa::ToSchema;
 

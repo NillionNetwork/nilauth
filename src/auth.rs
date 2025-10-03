@@ -1,7 +1,7 @@
 use crate::routes::{Json, RequestHandlerError};
 use axum::http::StatusCode;
-use axum::{extract::FromRequestParts, http::request::Parts};
 use axum::{Extension, RequestPartsExt};
+use axum::{extract::FromRequestParts, http::request::Parts};
 use nillion_nucs::did::Did;
 use nillion_nucs::envelope::NucEnvelopeParseError;
 use nillion_nucs::validator::{NucValidator, TokenTypeRequirements, ValidationError, ValidationParameters};
@@ -121,7 +121,7 @@ mod tests {
     use super::*;
     use crate::tests::random_public_key;
     use axum::http::Request;
-    use nillion_nucs::{builder::InvocationBuilder, DidMethod, Keypair, Signer};
+    use nillion_nucs::{DidMethod, Keypair, Signer, builder::InvocationBuilder};
 
     struct CapabilityNucBuilder {
         validator: NucValidator,

@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use nillion_nucs::did::Did;
 use serde::{Deserialize, Serialize};
-use sqlx::{prelude::FromRow, query, query_as, Executor, Postgres};
+use sqlx::{Executor, Postgres, prelude::FromRow, query, query_as};
 use std::{fmt, ops::DerefMut};
 use tracing::{error, info};
 use utoipa::ToSchema;
@@ -111,11 +111,11 @@ impl SubscriptionDb for PostgresSubscriptionDb {
         let mut tx = self.pool.0.begin().await?;
         let subscription_ends_at =
             self.do_find_subscription_end(subscriber_did, blind_module, tx.deref_mut(), true).await?;
-        if let Some(ends_at) = subscription_ends_at {
-            if ends_at > Utc::now() + self.config.renewal_threshold {
-                info!("Subscription can't be renewed because it ends at {ends_at}");
-                return Err(CreditPaymentError::CannotRenewYet);
-            }
+        if let Some(ends_at) = subscription_ends_at
+            && ends_at > Utc::now() + self.config.renewal_threshold
+        {
+            info!("Subscription can't be renewed because it ends at {ends_at}");
+            return Err(CreditPaymentError::CannotRenewYet);
         }
 
         let subscriber_did_str = subscriber_did.to_string();

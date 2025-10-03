@@ -1,18 +1,18 @@
 use crate::{auth::TokenValidatorState, state::AppState};
 use axum::{
-    extract::{rejection::JsonRejection, FromRequest, Request},
+    Extension, Router,
+    extract::{FromRequest, Request, rejection::JsonRejection},
     http::StatusCode,
     response::IntoResponse,
     routing::get,
-    Extension, Router,
 };
 use convert_case::{Case, Casing};
-use nillion_nucs::{validator::NucValidator, DidMethod};
+use nillion_nucs::{DidMethod, validator::NucValidator};
 use serde::Serialize;
 use std::{ops::Deref, sync::Arc};
 use utoipa::{
-    openapi::{InfoBuilder, OpenApiBuilder},
     ToSchema,
+    openapi::{InfoBuilder, OpenApiBuilder},
 };
 use utoipa_axum::{router::OpenApiRouter, routes};
 

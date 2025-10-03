@@ -11,7 +11,7 @@ use axum::{
 use chrono::{DateTime, Utc};
 use metrics::counter;
 use nillion_nucs::token::Command;
-use nillion_nucs::{builder::DelegationBuilder, did::Did, DidMethod};
+use nillion_nucs::{DidMethod, builder::DelegationBuilder, did::Did};
 use serde::{Deserialize, Serialize};
 use strum::EnumDiscriminants;
 use tracing::{error, info};

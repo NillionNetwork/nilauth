@@ -18,7 +18,7 @@ mod collector {
 #[cfg(target_os = "linux")]
 mod collector {
     use metrics::{counter, gauge};
-    use procfs::{net::TcpState, process::Process, WithCurrentSystemInfo};
+    use procfs::{WithCurrentSystemInfo, net::TcpState, process::Process};
     use std::{sync::LazyLock, time::Duration};
     use tokio::time::sleep;
     use tracing::warn;

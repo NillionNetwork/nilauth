@@ -2,9 +2,9 @@ use chrono::Utc;
 use nilauth_client::client::{
     BlindModule, DefaultNilauthClient, NilauthClient, PaySubscriptionError, RequestTokenError, RevokeTokenArgs,
 };
-use nillion_nucs::{envelope::NucTokenEnvelope, DidMethod, Keypair};
+use nillion_nucs::{DidMethod, Keypair, envelope::NucTokenEnvelope};
 use rstest::rstest;
-use setup::{nilauth, NilAuth};
+use setup::{NilAuth, nilauth};
 use std::time::Duration;
 
 mod setup;
