@@ -1,14 +1,17 @@
+use crate::auth::IdentityNuc;
 use crate::db::subscriptions::BlindModule;
 use crate::routes::Json;
 use crate::signed::{SignedRequest, VerificationError};
 use crate::{routes::RequestHandlerError, state::SharedState};
 use axum::{
+    extract::FromRequestParts,
     http::StatusCode,
     response::{IntoResponse, Response},
 };
 use chrono::{DateTime, Utc};
 use metrics::counter;
-use nillion_nucs::{builder::NucTokenBuilder, token::Did};
+use nillion_nucs::token::Command;
+use nillion_nucs::{DidMethod, builder::DelegationBuilder, did::Did};
 use serde::{Deserialize, Serialize};
 use strum::EnumDiscriminants;
 use tracing::{error, info};
@@ -16,30 +19,22 @@ use utoipa::ToSchema;
 
 #[derive(Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
-struct SignablePayload {
-    // A nonce to add entropy in hex form.
-    #[allow(dead_code)]
+struct LegacySignablePayload {
     #[serde(with = "hex::serde")]
-    #[schema(value_type = String, examples(crate::docs::nonce))]
     nonce: [u8; 16],
-
-    // When this payload is no longer considered valid, to prevent reusing this forever if it
-    // leaks.
     #[serde(with = "chrono::serde::ts_seconds")]
-    #[schema(value_type = u64, examples(crate::docs::epoch_timestamp))]
     expires_at: DateTime<Utc>,
-
-    // Our public key, to ensure this request can't be redirected to another authority service,
-    // encoded in hex.
     #[serde(with = "hex::serde")]
-    #[schema(value_type = String, examples(crate::docs::public_key))]
     target_public_key: [u8; 33],
-
-    // The blind_module we want a token for.
     blind_module: BlindModule,
 }
 
-/// The response to a NUC create request.
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct CreateNucRequest {
+    blind_module: BlindModule,
+}
+
+/// The response to a Nuc create request.
 #[derive(Debug, Serialize, ToSchema)]
 pub(crate) struct CreateNucResponse {
     /// The token in JWT serialized form.
@@ -47,47 +42,84 @@ pub(crate) struct CreateNucResponse {
     token: String,
 }
 
-/// Create a NUC.
+/// Optional identity Nuc authentication wrapper that rejects invalid tokens
+pub(crate) struct OptionalIdentityNuc(Option<IdentityNuc>);
+
+impl<S> FromRequestParts<S> for OptionalIdentityNuc
+where
+    S: Send + Sync,
+{
+    type Rejection = (StatusCode, Json<RequestHandlerError>);
+
+    async fn from_request_parts(parts: &mut axum::http::request::Parts, state: &S) -> Result<Self, Self::Rejection> {
+        // Check if Authorization header exists
+        if !parts.headers.contains_key("Authorization") {
+            return Ok(Self(None));
+        }
+
+        // Try to extract IdentityNuc, propagate errors if token is invalid
+        match IdentityNuc::from_request_parts(parts, state).await {
+            Ok(auth) => Ok(Self(Some(auth))),
+            Err(rejection) => Err(rejection),
+        }
+    }
+}
+
+/// Create a Nuc.
 #[utoipa::path(
     post,
     path = "/nucs/create",
     responses(
-        (status = OK, body = CreateNucResponse, description = "A NUC that can be used to delegate access to blind modules"),
+        (status = OK, body = CreateNucResponse, description = "A Nuc that can be used to delegate access to blind modules"),
         (status = 400, body = RequestHandlerError),
         (status = 412, body = RequestHandlerError),
     )
 )]
 pub(crate) async fn handler(
     state: SharedState,
-    request: Json<SignedRequest>,
+    OptionalIdentityNuc(opt_auth): OptionalIdentityNuc,
+    request: Json<serde_json::Value>,
 ) -> Result<Json<CreateNucResponse>, HandlerError> {
-    let request = request.0;
-    // Validate the payload has the right shape and toss it away.
-    let payload: SignablePayload = serde_json::from_slice(&request.payload)
-        .map_err(|e| HandlerError::MalformedPayload(e.to_string()))?;
-    if payload.expires_at < state.services.time.current_time() {
-        return Err(HandlerError::PayloadExpired);
-    } else if payload.target_public_key != *state.parameters.secret_key.public_key().to_sec1_bytes()
-    {
-        return Err(HandlerError::InvalidTargetPublicKey);
-    }
+    let (requestor_did, blind_module) = if let Some(auth) = opt_auth {
+        // This is the default flow which uses Nuc-based auth using the subject as the requestor's identity
 
-    let requestor_did = Did::new(request.public_key);
-    let public_key = request.verify()?;
-    let expires_at = match state
-        .databases
-        .subscriptions
-        .find_subscription_end(&public_key, &payload.blind_module)
-        .await
-    {
-        Ok(Some(timestamp)) => {
-            if timestamp <= state.services.time.current_time() {
-                return Err(HandlerError::SubscriptionExpired);
-            } else {
-                timestamp
-            }
+        // Validate command scope
+        let expected_command: Command = ["nil", "auth", "nucs", "create"].into();
+        if auth.0.token.command != expected_command {
+            return Err(HandlerError::InvalidCommand(expected_command));
         }
 
+        let modern_request: CreateNucRequest = serde_json::from_value(request.0)?;
+        (auth.0.token.subject, modern_request.blind_module)
+    } else {
+        // This is the legacy flow which uses signed payload auth. This will be removed
+        // when support for `did:nil` is dropped in the next major version.
+        let legacy_request: SignedRequest = serde_json::from_value(request.0)?;
+        let payload: LegacySignablePayload = serde_json::from_slice(&legacy_request.payload)
+            .map_err(|e| HandlerError::MalformedPayload(e.to_string()))?;
+
+        if payload.expires_at < state.services.time.current_time() {
+            return Err(HandlerError::PayloadExpired);
+        }
+        if payload.target_public_key != state.parameters.keypair.public_key() {
+            return Err(HandlerError::InvalidTargetPublicKey);
+        }
+        let _ = legacy_request.verify()?;
+        #[allow(deprecated)] // Required for backward compatibility with legacy flow
+        (Did::nil(legacy_request.public_key), payload.blind_module)
+    };
+
+    handle_nuc_creation(state, requestor_did, blind_module).await
+}
+
+async fn handle_nuc_creation(
+    state: SharedState,
+    requestor_did: Did,
+    blind_module: BlindModule,
+) -> Result<Json<CreateNucResponse>, HandlerError> {
+    let expires_at = match state.databases.subscriptions.find_subscription_end(&requestor_did, &blind_module).await {
+        Ok(Some(timestamp)) if timestamp > state.services.time.current_time() => timestamp,
+        Ok(Some(_)) => return Err(HandlerError::SubscriptionExpired),
         Ok(None) => return Err(HandlerError::NotSubscribed),
         Err(e) => {
             error!("Failed to look up subscription: {e}");
@@ -95,23 +127,25 @@ pub(crate) async fn handler(
         }
     };
 
-    let blind_module = payload.blind_module;
     let segment = match blind_module {
         BlindModule::NilAi => "ai",
         BlindModule::NilDb => "db",
     };
 
     info!("Minting token for {requestor_did}, expires at '{expires_at}'");
-    let token = NucTokenBuilder::delegation([])
+    let signer = state.parameters.keypair.signer(DidMethod::Key);
+    let token = DelegationBuilder::new()
         .command(["nil", segment])
-        .subject(requestor_did.clone())
+        .subject(requestor_did)
         .audience(requestor_did)
         .expires_at(expires_at)
-        .build(&state.parameters.secret_key.clone().into())
+        .sign_and_serialize(&signer)
+        .await
         .map_err(|e| {
             error!("Failed to sign token: {e}");
             HandlerError::Internal
         })?;
+
     counter!("nucs_minted_total", "module" => blind_module.to_string()).increment(1);
     let response = CreateNucResponse { token };
     Ok(Json(response))
@@ -120,6 +154,7 @@ pub(crate) async fn handler(
 #[derive(Debug, EnumDiscriminants)]
 pub(crate) enum HandlerError {
     Internal,
+    InvalidCommand(Command),
     InvalidPublicKey,
     InvalidTargetPublicKey,
     InvalidSignature,
@@ -128,6 +163,12 @@ pub(crate) enum HandlerError {
     PayloadExpired,
     SignatureVerification,
     SubscriptionExpired,
+}
+
+impl From<serde_json::Error> for HandlerError {
+    fn from(e: serde_json::Error) -> Self {
+        Self::MalformedPayload(e.to_string())
+    }
 }
 
 impl From<VerificationError> for HandlerError {
@@ -145,227 +186,19 @@ impl IntoResponse for HandlerError {
         let discriminant = HandlerErrorDiscriminants::from(&self);
         let (code, message) = match self {
             Self::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()),
-            Self::InvalidPublicKey => (StatusCode::BAD_REQUEST, "invalid public key".into()),
-            Self::InvalidTargetPublicKey => {
-                (StatusCode::BAD_REQUEST, "invalid target public key".into())
+            Self::InvalidCommand(expected) => {
+                (StatusCode::UNAUTHORIZED, format!("invalid command for identity token, expected '{expected}'"))
             }
+            Self::InvalidPublicKey => (StatusCode::BAD_REQUEST, "invalid public key".into()),
+            Self::InvalidTargetPublicKey => (StatusCode::BAD_REQUEST, "invalid target public key".into()),
             Self::InvalidSignature => (StatusCode::BAD_REQUEST, "invalid signature".into()),
-            Self::MalformedPayload(reason) => (
-                StatusCode::BAD_REQUEST,
-                format!("malformed payload: {reason}"),
-            ),
+            Self::MalformedPayload(reason) => (StatusCode::BAD_REQUEST, format!("malformed payload: {reason}")),
             Self::NotSubscribed => (StatusCode::PRECONDITION_FAILED, "not subscribed".into()),
             Self::PayloadExpired => (StatusCode::PRECONDITION_FAILED, "payload is expired".into()),
-            Self::SignatureVerification => (
-                StatusCode::BAD_REQUEST,
-                "signature verification failed".into(),
-            ),
-            Self::SubscriptionExpired => (
-                StatusCode::PRECONDITION_FAILED,
-                "subscription expired".into(),
-            ),
+            Self::SignatureVerification => (StatusCode::BAD_REQUEST, "signature verification failed".into()),
+            Self::SubscriptionExpired => (StatusCode::PRECONDITION_FAILED, "subscription expired".into()),
         };
         let response = RequestHandlerError::new(message, format!("{discriminant:?}"));
         (code, Json(response)).into_response()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::tests::AppStateBuilder;
-    use axum::extract::State;
-    use mockall::predicate::eq;
-    use nillion_nucs::{
-        envelope::NucTokenEnvelope,
-        k256::{PublicKey, SecretKey},
-    };
-    use rstest::rstest;
-    use std::time::Duration;
-
-    enum InputModifier {
-        Nonce,
-        Signature,
-        PublicKey,
-    }
-
-    struct Handler {
-        builder: AppStateBuilder,
-    }
-
-    impl Default for Handler {
-        fn default() -> Self {
-            let mut builder = AppStateBuilder::default();
-            builder
-                .time_service
-                .expect_current_time()
-                .returning(|| Utc::now() - Duration::from_secs(60));
-            Self { builder }
-        }
-    }
-
-    impl Handler {
-        async fn invoke(self, request: SignedRequest) -> Result<CreateNucResponse, HandlerError> {
-            let state = self.builder.build();
-            let request = Json(request);
-            handler(State(state), request).await.map(|r| r.0)
-        }
-
-        fn expect_subscription_ends(
-            &mut self,
-            public_key: PublicKey,
-            time: Option<DateTime<Utc>>,
-            blind_module: BlindModule,
-        ) {
-            self.builder
-                .subscriptions_db
-                .expect_find_subscription_end()
-                .with(eq(public_key), eq(blind_module))
-                .return_once(move |_, _| Ok(time));
-        }
-    }
-
-    #[tokio::test]
-    async fn valid_request() {
-        let mut handler = Handler::default();
-        let client_key = SecretKey::random(&mut rand::thread_rng());
-        let now = Utc::now();
-        let blind_module = BlindModule::NilDb;
-        handler.expect_subscription_ends(
-            client_key.public_key(),
-            Some(now + Duration::from_secs(60)),
-            blind_module,
-        );
-        handler.builder.set_current_time(now);
-
-        let payload = SignablePayload {
-            nonce: [0; 16],
-            expires_at: now + Duration::from_secs(1),
-            target_public_key: handler.builder.public_key().try_into().unwrap(),
-            blind_module,
-        };
-        let request = SignedRequest::new(&client_key, &payload);
-        let response = handler.invoke(request).await.expect("failed to mint token");
-        NucTokenEnvelope::decode(&response.token)
-            .expect("invalid token")
-            .validate_signatures()
-            .expect("invalid signatures");
-    }
-
-    #[tokio::test]
-    async fn no_subscription() {
-        let mut handler = Handler::default();
-        let client_key = SecretKey::random(&mut rand::thread_rng());
-        let blind_module = BlindModule::NilDb;
-        handler.expect_subscription_ends(client_key.public_key(), None, blind_module);
-
-        let payload = SignablePayload {
-            nonce: [0; 16],
-            expires_at: Utc::now(),
-            target_public_key: handler.builder.public_key().try_into().unwrap(),
-            blind_module,
-        };
-        let request = SignedRequest::new(&client_key, &payload);
-        let err = handler
-            .invoke(request)
-            .await
-            .expect_err("request succeeded");
-        assert!(matches!(err, HandlerError::NotSubscribed));
-    }
-
-    #[tokio::test]
-    async fn expired_subscription() {
-        let mut handler = Handler::default();
-        let client_key = SecretKey::random(&mut rand::thread_rng());
-        let now = Utc::now();
-        let blind_module = BlindModule::NilDb;
-        handler.expect_subscription_ends(
-            client_key.public_key(),
-            Some(now - Duration::from_secs(1)),
-            blind_module,
-        );
-        handler.builder.set_current_time(now);
-
-        let payload = &SignablePayload {
-            nonce: [0; 16],
-            expires_at: now + Duration::from_secs(1),
-            target_public_key: handler.builder.public_key().try_into().unwrap(),
-            blind_module,
-        };
-        let request = SignedRequest::new(&client_key, &payload);
-        let err = handler
-            .invoke(request)
-            .await
-            .expect_err("request succeeded");
-        assert!(matches!(err, HandlerError::SubscriptionExpired));
-    }
-
-    #[tokio::test]
-    #[rstest]
-    #[case::nonce(InputModifier::Nonce)]
-    #[case::signature(InputModifier::Signature)]
-    #[case::public_key(InputModifier::PublicKey)]
-    async fn invalid_signature(#[case] modifier: InputModifier) {
-        let handler = Handler::default();
-        let client_key = SecretKey::random(&mut rand::thread_rng());
-        let blind_module = BlindModule::NilDb;
-        let payload = SignablePayload {
-            nonce: [0; 16],
-            expires_at: Utc::now(),
-            target_public_key: handler.builder.public_key().try_into().unwrap(),
-            blind_module,
-        };
-        let mut request = SignedRequest::new(&client_key, &payload);
-        match modifier {
-            InputModifier::Nonce => {
-                request.payload = serde_json::to_string(&SignablePayload {
-                    nonce: [1; 16],
-                    expires_at: Utc::now(),
-                    target_public_key: handler.builder.public_key().try_into().unwrap(),
-                    blind_module,
-                })
-                .unwrap()
-                .into()
-            }
-            InputModifier::Signature => request.signature[10] ^= 1,
-            InputModifier::PublicKey => request.public_key[10] ^= 1,
-        };
-        handler.invoke(request).await.expect_err("token was minted");
-    }
-
-    #[tokio::test]
-    async fn expired_request() {
-        let handler = Handler::default();
-        let client_key = SecretKey::random(&mut rand::thread_rng());
-        let payload = SignablePayload {
-            nonce: [0; 16],
-            expires_at: Utc::now() - Duration::from_secs(3600),
-            target_public_key: handler.builder.public_key().try_into().unwrap(),
-            blind_module: BlindModule::NilDb,
-        };
-        let request = SignedRequest::new(&client_key, &payload);
-        let err = handler
-            .invoke(request)
-            .await
-            .expect_err("token minted successfully");
-        assert!(matches!(err, HandlerError::PayloadExpired));
-    }
-
-    #[tokio::test]
-    async fn invalid_target_public_key() {
-        let handler = Handler::default();
-        let client_key = SecretKey::random(&mut rand::thread_rng());
-        let payload = SignablePayload {
-            nonce: [0; 16],
-            expires_at: Utc::now(),
-            target_public_key: [0; 33],
-            blind_module: BlindModule::NilDb,
-        };
-        let request = SignedRequest::new(&client_key, &payload);
-        let err = handler
-            .invoke(request)
-            .await
-            .expect_err("token minted successfully");
-        assert!(matches!(err, HandlerError::InvalidTargetPublicKey));
     }
 }

@@ -1,53 +1,52 @@
+use crate::auth::IdentityNuc;
 use crate::db::subscriptions::BlindModule;
 use crate::routes::Json;
-use crate::{
-    db::subscriptions::CreditPaymentError, routes::RequestHandlerError, state::SharedState,
-};
+use crate::{db::subscriptions::CreditPaymentError, routes::RequestHandlerError, state::SharedState};
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
 use metrics::counter;
 use nilauth_client::nilchain_client::tx::RetrieveError;
-use nillion_nucs::k256::{
-    sha2::{Digest, Sha256},
-    PublicKey,
-};
+use nillion_nucs::did::Did;
+use nillion_nucs::k256::sha2::{Digest, Sha256};
+use nillion_nucs::token::Command;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use strum::EnumDiscriminants;
 use tracing::{error, info, warn};
 use utoipa::ToSchema;
 
+/// The plaintext payload that is hashed and stored on-chain.
+#[derive(Serialize, Deserialize, Clone, ToSchema)]
+#[serde(deny_unknown_fields)]
+struct OnChainPaymentPayload {
+    /// The public key of the nilauth service this payment is for.
+    #[serde(with = "hex::serde")]
+    #[schema(value_type = String)]
+    service_public_key: [u8; 33],
+    /// A random value to ensure the hash of this payload is unique
+    #[serde(with = "hex::serde")]
+    #[schema(value_type = String)]
+    nonce: [u8; 16],
+    /// The nillion blind module
+    /// being subscribe to.
+    blind_module: BlindModule,
+    /// The user paying for the subscription.
+    #[schema(value_type = String)]
+    payer_did: Did,
+    /// The user the subscription is for.
+    #[schema(value_type = String)]
+    subscriber_did: Did,
+}
+
 /// A request to validate a payment.
 #[derive(Deserialize, ToSchema)]
 pub(crate) struct ValidatePaymentRequest {
     /// The transaction hash that contains proof of this payment.
-    #[schema(examples("f7512550e93528be609eb2410b1d31aa4062e95a83a35f86800edbf1b1b7a51c"))]
     tx_hash: String,
-
-    /// The payload in hex-encoded form.
-    #[serde(with = "hex::serde")]
-    #[schema(value_type = String, examples(crate::docs::hex_payload))]
-    payload: Vec<u8>,
-
-    /// The public key for the user the subscription is for, in hex form.
-    #[serde(with = "hex::serde")]
-    #[schema(value_type = String, examples(crate::docs::public_key))]
-    public_key: [u8; 33],
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Payload {
-    #[allow(dead_code)]
-    #[serde(with = "hex::serde")]
-    nonce: [u8; 16],
-
-    #[serde(with = "hex::serde")]
-    service_public_key: Vec<u8>,
-
-    blind_module: BlindModule,
+    /// The full, unhashed payload that was committed to the chain.
+    payload: OnChainPaymentPayload,
 }
 
 /// Validate a subscription payment.
@@ -62,39 +61,46 @@ struct Payload {
 )]
 pub(crate) async fn handler(
     state: SharedState,
+    auth: IdentityNuc,
     Json(request): Json<ValidatePaymentRequest>,
 ) -> Result<Json<()>, HandlerError> {
-    let public_key = PublicKey::from_sec1_bytes(&request.public_key)
-        .map_err(|_| HandlerError::InvalidPublicKey)?;
-    let decoded_payload: Payload = serde_json::from_slice(&request.payload)
-        .map_err(|e| HandlerError::MalformedPayload(e.to_string()))?;
-    if decoded_payload.service_public_key
-        != *state.parameters.secret_key.public_key().to_sec1_bytes()
-    {
+    // Validate command scope
+    let expected_command: Command = ["nil", "auth", "payments", "validate"].into();
+    if auth.0.token.command != expected_command {
+        return Err(HandlerError::InvalidCommand(expected_command));
+    }
+
+    // Verify that the Nuc subject matches the payload payer
+    if auth.0.token.subject != request.payload.payer_did {
+        return Err(HandlerError::PayerMismatch);
+    }
+
+    // Serialize the payload for hashing
+    let payload_bytes =
+        serde_json::to_vec(&request.payload).map_err(|e| HandlerError::MalformedPayload(e.to_string()))?;
+
+    if request.payload.service_public_key != state.parameters.keypair.public_key() {
         return Err(HandlerError::UnknownPublicKey);
     }
 
-    // Make sure the client has proven they made the transaction
+    // Verify the received payload hash matches the on-chain resource hash
     let tx_hash = request.tx_hash.to_lowercase();
     let tx = state.services.tx.get(&tx_hash).await?;
-    let payload_hash = Sha256::digest(&request.payload);
+    let payload_hash = Sha256::digest(&payload_bytes);
+
     if tx.resource != payload_hash.as_slice() {
-        store_invalid_payment(&state, &tx_hash, public_key).await;
+        store_invalid_payment(&state, &tx_hash, &request.payload.subscriber_did).await;
         counter!("invalid_payments_total", "reason" => "hash").increment(1);
         return Err(HandlerError::HashMismatch);
     }
-    // Make sure they paid enough
-    let blind_module = decoded_payload.blind_module;
-    match state
-        .services
-        .subscription_cost
-        .blind_module_cost(blind_module)
-        .await
-    {
+
+    // Ensure payment is sufficient
+    let blind_module = request.payload.blind_module;
+    match state.services.subscription_cost.blind_module_cost(blind_module).await {
         Ok(cost_unils) => {
             let unil_paid = Decimal::from(tx.amount.to_unil());
-            let minimum_payment = Decimal::from(cost_unils)
-                * (Decimal::from(1) - state.parameters.subscription_cost_slippage);
+            let minimum_payment =
+                Decimal::from(cost_unils) * (Decimal::from(1) - state.parameters.subscription_cost_slippage);
             if unil_paid < minimum_payment {
                 warn!("Expected payment for {minimum_payment} but got {unil_paid} unils");
                 counter!("invalid_payments_total", "reason" => "underpaid").increment(1);
@@ -109,29 +115,20 @@ pub(crate) async fn handler(
         }
     };
 
-    state
-        .databases
-        .subscriptions
-        .credit_payment(&tx_hash, public_key, &blind_module)
-        .await?;
+    // Credit the payment to the subscriber identified *in the payload*
+    state.databases.subscriptions.credit_payment(&tx_hash, &request.payload.subscriber_did, &blind_module).await?;
     Ok(Json(()))
 }
 
-async fn store_invalid_payment(state: &SharedState, tx_hash: &str, public_key: PublicKey) {
-    let result = state
-        .databases
-        .subscriptions
-        .store_invalid_payment(tx_hash, public_key)
-        .await;
-    match result {
-        Ok(_) => (),
-        Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
-            info!("Invalid transaction {tx_hash} was already processed, ignoring")
+async fn store_invalid_payment(state: &SharedState, tx_hash: &str, subscriber_did: &Did) {
+    let result = state.databases.subscriptions.store_invalid_payment(tx_hash, subscriber_did).await;
+    if let Err(sqlx::Error::Database(e)) = result {
+        if e.is_unique_violation() {
+            info!("Invalid transaction {tx_hash} was already processed, ignoring");
+        } else {
+            error!("Failed to store invalid payment with tx hash {tx_hash}: {e}");
         }
-        Err(e) => {
-            error!("Failed to store invalid payment with tx hash {tx_hash}: {e}")
-        }
-    };
+    }
 }
 
 #[derive(Debug, EnumDiscriminants)]
@@ -140,10 +137,11 @@ pub(crate) enum HandlerError {
     HashMismatch,
     InsufficientPayment,
     Internal,
-    InvalidPublicKey,
+    InvalidCommand(Command),
     MalformedPayload(String),
     MalformedTransaction,
     PaymentAlreadyProcessed,
+    PayerMismatch,
     TransactionLookup,
     TransactionNotCommitted,
     UnknownPublicKey,
@@ -173,43 +171,25 @@ impl IntoResponse for HandlerError {
     fn into_response(self) -> Response {
         let discriminant = HandlerErrorDiscriminants::from(&self);
         let (code, message) = match self {
-            Self::CannotRenewYet => (
-                StatusCode::PRECONDITION_FAILED,
-                "cannot renew subscription yet".into(),
-            ),
-            Self::PaymentAlreadyProcessed => (
-                StatusCode::PRECONDITION_FAILED,
-                "payment transaction already processed".into(),
-            ),
-            Self::HashMismatch => (
-                StatusCode::BAD_REQUEST,
-                "payload hash does not match transaction nonce".into(),
-            ),
-            Self::InvalidPublicKey => (
-                StatusCode::BAD_REQUEST,
-                "invalid public key in request".into(),
-            ),
-            Self::InsufficientPayment => (
-                StatusCode::PRECONDITION_FAILED,
-                "insufficient payment".into(),
-            ),
+            Self::CannotRenewYet => (StatusCode::PRECONDITION_FAILED, "cannot renew subscription yet".into()),
+            Self::PaymentAlreadyProcessed => {
+                (StatusCode::PRECONDITION_FAILED, "payment transaction already processed".into())
+            }
+            Self::HashMismatch => (StatusCode::BAD_REQUEST, "payload hash does not match transaction nonce".into()),
+            Self::InsufficientPayment => (StatusCode::PRECONDITION_FAILED, "insufficient payment".into()),
             Self::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()),
-            Self::MalformedPayload(reason) => (
-                StatusCode::BAD_REQUEST,
-                format!("malformed payload: {reason}"),
-            ),
-            Self::UnknownPublicKey => (
-                StatusCode::BAD_REQUEST,
-                "payload public key is different from ours".into(),
-            ),
-            Self::TransactionNotCommitted => (
-                StatusCode::PRECONDITION_FAILED,
-                "transaction is not yet committed".into(),
-            ),
-            Self::MalformedTransaction => (
-                StatusCode::BAD_REQUEST,
-                "transaction payload is malformed".into(),
-            ),
+            Self::InvalidCommand(expected) => {
+                (StatusCode::UNAUTHORIZED, format!("invalid command for identity token, expected '{expected}'"))
+            }
+            Self::MalformedPayload(reason) => (StatusCode::BAD_REQUEST, format!("malformed payload: {reason}")),
+            Self::UnknownPublicKey => (StatusCode::BAD_REQUEST, "payload public key is different from ours".into()),
+            Self::TransactionNotCommitted => {
+                (StatusCode::PRECONDITION_FAILED, "transaction is not yet committed".into())
+            }
+            Self::MalformedTransaction => (StatusCode::BAD_REQUEST, "transaction payload is malformed".into()),
+            Self::PayerMismatch => {
+                (StatusCode::BAD_REQUEST, "authenticated user does not match payer in payload".into())
+            }
             Self::TransactionLookup => (StatusCode::NOT_FOUND, "transaction not found".into()),
         };
         let response = RequestHandlerError::new(message, format!("{discriminant:?}"));
@@ -220,11 +200,10 @@ impl IntoResponse for HandlerError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::{random_public_key, AppStateBuilder, PublicKeyExt};
+    use crate::tests::{AppStateBuilder, random_public_key};
     use axum::extract::State;
     use mockall::predicate::eq;
     use nilauth_client::nilchain_client::{transactions::TokenAmount, tx::PaymentTransaction};
-    use nillion_nucs::k256::SecretKey;
 
     #[derive(Default)]
     struct Handler {
@@ -234,20 +213,26 @@ mod tests {
     impl Handler {
         async fn invoke(self, request: ValidatePaymentRequest) -> Result<(), HandlerError> {
             let state = self.builder.build();
-            let request = Json(request);
-            handler(State(state), request).await.map(|r| r.0)
+            let auth = IdentityNuc(nillion_nucs::validator::ValidatedNucToken {
+                token: nillion_nucs::token::NucToken {
+                    issuer: request.payload.payer_did,
+                    audience: state.parameters.keypair.to_did(nillion_nucs::DidMethod::Key),
+                    subject: request.payload.payer_did,
+                    not_before: None,
+                    expires_at: None,
+                    command: ["nil", "auth", "payments", "validate"].into(),
+                    body: nillion_nucs::token::TokenBody::Invocation(Default::default()),
+                    meta: None,
+                    nonce: vec![],
+                    proofs: vec![],
+                },
+                proofs: vec![],
+            });
+            handler(State(state), auth, Json(request)).await.map(|_| ())
         }
 
-        fn expect_tx_retrieve(
-            &mut self,
-            tx_hash: String,
-            response: Result<PaymentTransaction, RetrieveError>,
-        ) {
-            self.builder
-                .tx_retriever
-                .expect_get()
-                .with(eq(tx_hash))
-                .return_once(move |_| response);
+        fn expect_tx_retrieve(&mut self, tx_hash: String, response: Result<PaymentTransaction, RetrieveError>) {
+            self.builder.tx_retriever.expect_get().with(eq(tx_hash)).return_once(move |_| response);
         }
     }
 
@@ -256,48 +241,40 @@ mod tests {
         let tx_hash = "0xdeadbeef".to_string();
         let mut handler = Handler::default();
         let blind_module = BlindModule::NilDb;
-        let payload = Payload {
+        let payer_did = Did::key(random_public_key());
+        let subscriber_did = Did::key(random_public_key());
+        let payload = OnChainPaymentPayload {
             nonce: rand::random(),
-            service_public_key: handler.builder.public_key(),
+            payer_did,
+            subscriber_did,
             blind_module,
+            service_public_key: handler.builder.keypair.public_key(),
         };
-        let payload = serde_json::to_vec(&payload).expect("failed to serialize");
-        let payload_hash = Sha256::digest(&payload);
+        let payload_bytes = serde_json::to_vec(&payload).expect("failed to serialize");
+        let payload_hash = Sha256::digest(&payload_bytes);
         handler.expect_tx_retrieve(
             tx_hash.clone(),
             Ok(PaymentTransaction {
                 resource: payload_hash.to_vec(),
                 from_address: "".into(),
-                // Pay 99% of the cost
                 amount: TokenAmount::Unil(990_000),
             }),
         );
 
-        let public_key = SecretKey::random(&mut rand::thread_rng()).public_key();
         handler
             .builder
             .subscriptions_db
             .expect_credit_payment()
-            .with(
-                eq(tx_hash.clone()),
-                eq(public_key.clone()),
-                eq(blind_module),
-            )
-            .return_once(move |_, _, _| Ok(()));
+            .with(eq(tx_hash.clone()), eq(subscriber_did), eq(blind_module))
+            .return_once(|_, _, _| Ok(()));
         handler
             .builder
             .subscription_costs_service
             .expect_blind_module_cost()
             .with(eq(blind_module))
-            .return_once(|_| Ok(1));
-        handler
-            .invoke(ValidatePaymentRequest {
-                tx_hash,
-                payload,
-                public_key: public_key.to_bytes(),
-            })
-            .await
-            .expect("request failed");
+            .return_once(|_| Ok(1_000_000));
+
+        handler.invoke(ValidatePaymentRequest { tx_hash, payload }).await.expect("request failed");
     }
 
     #[tokio::test]
@@ -305,97 +282,34 @@ mod tests {
         let tx_hash = "0xdeadbeef".to_string();
         let mut handler = Handler::default();
         let blind_module = BlindModule::NilDb;
-        let payload = Payload {
+        let payer_did = Did::key(random_public_key());
+        let subscriber_did = Did::key(random_public_key());
+        let payload = OnChainPaymentPayload {
             nonce: rand::random(),
-            service_public_key: handler.builder.public_key(),
+            payer_did,
+            subscriber_did,
             blind_module,
+            service_public_key: handler.builder.keypair.public_key(),
         };
-        let payload = serde_json::to_vec(&payload).expect("failed to serialize");
-        let payload_hash = Sha256::digest(&payload);
+        let payload_bytes = serde_json::to_vec(&payload).expect("failed to serialize");
+        let payload_hash = Sha256::digest(&payload_bytes);
         handler.expect_tx_retrieve(
             tx_hash.clone(),
             Ok(PaymentTransaction {
                 resource: payload_hash.to_vec(),
                 from_address: "".into(),
-                // Pay one unil less than 99% of the cost
-                amount: TokenAmount::Unil(989_999),
+                amount: TokenAmount::Unil(989_999), // Insufficient amount
             }),
         );
 
-        let public_key = SecretKey::random(&mut rand::thread_rng()).public_key();
         handler
             .builder
             .subscription_costs_service
             .expect_blind_module_cost()
             .with(eq(blind_module))
             .return_once(|_| Ok(1_000_000));
-        handler
-            .invoke(ValidatePaymentRequest {
-                tx_hash,
-                payload,
-                public_key: public_key.to_bytes(),
-            })
-            .await
-            .expect_err("request succeeded");
-    }
 
-    #[tokio::test]
-    async fn validate_invalid_hash_payment() {
-        let tx_hash = "0xdeadbeef".to_string();
-        let mut handler = Handler::default();
-        let payload = Payload {
-            nonce: rand::random(),
-            service_public_key: handler.builder.public_key(),
-            blind_module: BlindModule::NilDb,
-        };
-        let payload = serde_json::to_vec(&payload).expect("failed to serialize");
-        let payload_hash = Sha256::digest(b"hi mom");
-        let public_key = SecretKey::random(&mut rand::thread_rng()).public_key();
-        handler.expect_tx_retrieve(
-            tx_hash.clone(),
-            Ok(PaymentTransaction {
-                resource: payload_hash.to_vec(),
-                from_address: "".into(),
-                amount: TokenAmount::Unil(1),
-            }),
-        );
-
-        handler
-            .builder
-            .subscriptions_db
-            .expect_store_invalid_payment()
-            .with(eq(tx_hash.clone()), eq(public_key.clone()))
-            .return_once(|_, _| Ok(()));
-        let err = handler
-            .invoke(ValidatePaymentRequest {
-                tx_hash,
-                payload,
-                public_key: public_key.to_bytes(),
-            })
-            .await
-            .expect_err("request succeeded");
-        assert!(matches!(err, HandlerError::HashMismatch));
-    }
-
-    #[tokio::test]
-    async fn validate_tx_hash_not_found() {
-        let tx_hash = "0xdeadbeef".to_string();
-        let mut handler = Handler::default();
-        let payload = Payload {
-            nonce: rand::random(),
-            service_public_key: handler.builder.public_key(),
-            blind_module: BlindModule::NilDb,
-        };
-        let payload = serde_json::to_vec(&payload).expect("failed to serialize");
-        handler.expect_tx_retrieve(tx_hash.clone(), Err(RetrieveError::NotCommitted));
-        let err = handler
-            .invoke(ValidatePaymentRequest {
-                tx_hash,
-                payload,
-                public_key: random_public_key(),
-            })
-            .await
-            .expect_err("request succeeded");
-        assert!(matches!(err, HandlerError::TransactionNotCommitted));
+        let err = handler.invoke(ValidatePaymentRequest { tx_hash, payload }).await.expect_err("request succeeded");
+        assert!(matches!(err, HandlerError::InsufficientPayment));
     }
 }

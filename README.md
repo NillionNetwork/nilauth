@@ -1,44 +1,22 @@
-# nilauth
+# NilAuth Service
 
-nilauth keeps track of blind module subscriptions and allows minting the root NUCs that grant access to them.
+The
+`nilauth` service manages blind module subscriptions and mints root Nucs that grant access to Nillion's blind compute services.
 
-# Development
+## Getting Started
 
-Make sure your system has the following dependencies installed:
-* The [Rust programming language](https://www.rust-lang.org/).
-* [Docker compose](https://docs.docker.com/compose/).
+For a complete guide to configuring and running the service, please see the *
+*[Service Documentation](./DOCUMENTATION.md)**.
 
----
+## Getting Help
 
-Start dependencies by running:
+- [Create an Issue](https://github.com/NillionNetwork/nilauth/issues/new/choose)
+- [Join our Discord](https://discord.com/invite/nillionnetwork)
 
-```bash
-docker compose up
-```
+## Contributing
 
-Once they're up, start `nilauth` by running:
+We welcome contributions to the project! Please see the [Contributing Guide](./CONTRIBUTING.md) for details on how to get started.
 
-```bash
-cargo run -- --config-file config.sample.yaml
-```
+## License
 
-## Tests
-
-Test the application by running:
-
-```bash
-cargo test
-```
-
-Note that tests require `docker` to be installed and will start and stop a few containers while they're running.
-
-## nilchain
-
-The nilchain instance can be reached at the following ports:
-
-* JSON RPC: 26648
-* gRPC: 26649
-* REST: 26650
-
-There's a single "stash" key that contains lots of funds using private key 
-`97f49889fceed88a9cdddb16a161d13f6a12307c2b39163f3c3c397c3c2d2434`.
+This project is licensed under the [MIT License](./LICENSE).

@@ -41,15 +41,9 @@ pub(crate) async fn handler(
     if request.hashes.len() > ValidationParameters::default().max_chain_length {
         return Err(HandlerError::TooManyHashes);
     }
-    let revocations = state
-        .databases
-        .revocations
-        .lookup_revocations(&request.hashes)
-        .await
-        .map_err(|_| HandlerError::Database)?;
-    let response = LookupRevocationResponse {
-        revoked: revocations,
-    };
+    let revocations =
+        state.databases.revocations.lookup_revocations(&request.hashes).await.map_err(|_| HandlerError::Database)?;
+    let response = LookupRevocationResponse { revoked: revocations };
     Ok(Json(response))
 }
 
@@ -66,10 +60,7 @@ impl IntoResponse for HandlerError {
             Self::Database => (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()),
             Self::TooManyHashes => (
                 StatusCode::BAD_REQUEST,
-                format!(
-                    "can only look up to {} hashes",
-                    ValidationParameters::default().max_chain_length
-                ),
+                format!("can only look up to {} hashes", ValidationParameters::default().max_chain_length),
             ),
         };
         let response = RequestHandlerError::new(message, format!("{discriminant:?}"));

@@ -7,7 +7,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use chrono::{DateTime, Utc};
-use nillion_nucs::k256::PublicKey;
+use nillion_nucs::did::Did;
 use serde::{Deserialize, Serialize};
 use strum::EnumDiscriminants;
 use tracing::error;
@@ -16,10 +16,9 @@ use utoipa::{IntoParams, ToSchema};
 /// A request to get a subscription's status.
 #[derive(Deserialize, IntoParams)]
 pub(crate) struct SubscriptionStatusArgs {
-    /// The public key to check the subscription for, in hex form.
-    #[serde(with = "hex::serde")]
-    #[param(value_type = String, example = crate::docs::public_key)]
-    public_key: [u8; 33],
+    /// The Did to check the subscription for.
+    #[param(value_type = String, example = "did:key:zQ3sh...")]
+    did: Did,
 
     /// The blind module to check the subscription for.
     #[param(value_type = String, example = crate::docs::blind_module)]
@@ -66,34 +65,24 @@ pub(crate) async fn handler(
     state: SharedState,
     request: Query<SubscriptionStatusArgs>,
 ) -> Result<Json<SubscriptionStatusResponse>, HandlerError> {
-    let public_key = PublicKey::from_sec1_bytes(&request.public_key)
-        .map_err(|_| HandlerError::InvalidPublicKey)?;
-    let expires_at = state
-        .databases
-        .subscriptions
-        .find_subscription_end(&public_key, &request.blind_module)
-        .await
-        .map_err(|e| {
-            error!("Subscription lookup failed: {e}");
-            HandlerError::Internal
-        })?;
+    let expires_at =
+        state.databases.subscriptions.find_subscription_end(&request.did, &request.blind_module).await.map_err(
+            |e| {
+                error!("Subscription lookup failed: {e}");
+                HandlerError::Internal
+            },
+        )?;
     let details = expires_at.map(|expires_at| Subscription {
         expires_at,
         renewable_at: expires_at - state.parameters.subscription_renewal_threshold,
     });
-    let subscribed = expires_at
-        .map(|e| e > state.services.time.current_time())
-        .unwrap_or_default();
-    Ok(Json(SubscriptionStatusResponse {
-        subscribed,
-        details,
-    }))
+    let subscribed = expires_at.map(|e| e > state.services.time.current_time()).unwrap_or_default();
+    Ok(Json(SubscriptionStatusResponse { subscribed, details }))
 }
 
 #[derive(Debug, EnumDiscriminants)]
 pub(crate) enum HandlerError {
     Internal,
-    InvalidPublicKey,
 }
 
 impl IntoResponse for HandlerError {
@@ -101,7 +90,6 @@ impl IntoResponse for HandlerError {
         let discriminant = HandlerErrorDiscriminants::from(&self);
         let (code, message) = match self {
             Self::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "internal error"),
-            Self::InvalidPublicKey => (StatusCode::BAD_REQUEST, "invalid public key"),
         };
         let response = RequestHandlerError::new(message, format!("{discriminant:?}"));
         (code, Json(response)).into_response()
@@ -111,7 +99,7 @@ impl IntoResponse for HandlerError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::{AppStateBuilder, PublicKeyExt};
+    use crate::tests::AppStateBuilder;
     use axum::extract::State;
     use mockall::predicate::eq;
     use nillion_nucs::k256::SecretKey;
@@ -129,10 +117,7 @@ mod tests {
     }
 
     impl Handler {
-        async fn invoke(
-            self,
-            request: SubscriptionStatusArgs,
-        ) -> Result<SubscriptionStatusResponse, HandlerError> {
+        async fn invoke(self, request: SubscriptionStatusArgs) -> Result<SubscriptionStatusResponse, HandlerError> {
             let state = self.builder.build();
             let request = Query(request);
             handler(State(state), request).await.map(|r| r.0)
@@ -143,37 +128,29 @@ mod tests {
     async fn valid_request() {
         let mut handler = Handler::default();
         let key = SecretKey::random(&mut rand::thread_rng());
+        let public_key_bytes: [u8; 33] = key.public_key().to_sec1_bytes().as_ref().try_into().unwrap();
+        let subscriber_did = Did::key(public_key_bytes);
         let now = Utc::now();
-        let timestamp = Utc::now();
+        let timestamp = now + Duration::from_secs(120);
         let blind_module = BlindModule::NilDb;
-        handler
-            .builder
-            .time_service
-            .expect_current_time()
-            .returning(move || now);
+        handler.builder.time_service.expect_current_time().returning(move || now);
 
         handler
             .builder
             .subscriptions_db
             .expect_find_subscription_end()
-            .with(eq(key.public_key()), eq(blind_module))
+            .with(eq(subscriber_did), eq(blind_module))
             .return_once(move |_, _| Ok(Some(timestamp)));
 
         let renewal_threshold = Duration::from_secs(30);
         handler.builder.subscription_renewal_threshold = renewal_threshold;
 
-        let request = SubscriptionStatusArgs {
-            public_key: key.public_key().to_bytes(),
-            blind_module,
-        };
+        let request = SubscriptionStatusArgs { did: subscriber_did, blind_module };
         let response = handler.invoke(request).await.expect("handler failed");
         assert!(response.subscribed);
         assert_eq!(
             response.details,
-            Some(Subscription {
-                expires_at: timestamp,
-                renewable_at: timestamp - renewal_threshold
-            })
+            Some(Subscription { expires_at: timestamp, renewable_at: timestamp - renewal_threshold })
         );
     }
 
@@ -181,30 +158,23 @@ mod tests {
     async fn expired_subscription() {
         let mut handler = Handler::default();
         let key = SecretKey::random(&mut rand::thread_rng());
+        let public_key_bytes: [u8; 33] = key.public_key().to_sec1_bytes().as_ref().try_into().unwrap();
+        let subscriber_did = Did::key(public_key_bytes);
         let now = Utc::now();
         let timestamp = now - Duration::from_secs(60);
         let blind_module = BlindModule::NilDb;
-        handler
-            .builder
-            .time_service
-            .expect_current_time()
-            .returning(move || now);
+        handler.builder.time_service.expect_current_time().returning(move || now);
 
         handler
             .builder
             .subscriptions_db
             .expect_find_subscription_end()
-            .with(eq(key.public_key()), eq(blind_module))
+            .with(eq(subscriber_did), eq(blind_module))
             .return_once(move |_, _| Ok(Some(timestamp)));
 
-        let request = SubscriptionStatusArgs {
-            public_key: key.public_key().to_bytes(),
-            blind_module,
-        };
+        let request = SubscriptionStatusArgs { did: subscriber_did, blind_module };
         let response = handler.invoke(request).await.expect("handler failed");
         assert!(!response.subscribed);
-        response
-            .details
-            .expect("subscription should still be returned");
+        response.details.expect("subscription should still be returned");
     }
 }

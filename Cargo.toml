@@ -1,7 +1,7 @@
 [package]
 name = "nilauth"
-version = "0.1.0"
-edition = "2021"
+version = "1.0.0-rc.0"
+edition = "2024"
 
 [dependencies]
 anyhow = "1.0"
@@ -15,13 +15,13 @@ convert_case = "0.8"
 hex = { version = "0.4", features = ["serde"] }
 itertools = "0.14"
 metrics = "0.24"
-nilauth-client = { git = "https://github.com/NillionNetwork/nilauth-client-rs", rev = "03519695b7e2741f7db4c4d7daa99bf00e3f59ce" }
-nillion-nucs = { git = "https://github.com/NillionNetwork/nuc-rs", rev = "687657acd08f2543e5c0d75e910eb9f1b1152d00" }
+nilauth-client = { git = "https://github.com/NillionNetwork/nilauth-client-rs", rev = "a0edaef0f9aa373147a5de6f4297b13825bfb054" }
+nillion-nucs = { git = "https://github.com/NillionNetwork/nuc-rs", rev = "ce02d1f262a2ac28db98fbb54dbabe1235fd1ecc" }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 rust_decimal = "1.37"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-serde_with = "3.12"
+serde_with = "3.14"
 strum = { version = "0.27", features = ["derive"] }
 sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "chrono"] }
 thiserror = "2"

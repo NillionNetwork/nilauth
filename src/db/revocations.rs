@@ -12,20 +12,21 @@ use utoipa::ToSchema;
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub(crate) trait RevocationDb: Send + Sync + 'static {
-    /// Store a revocation.
+    /// Store a revocation for a given token hash.
+    ///
+    /// This operation is idempotent. If the token is already revoked, it succeeds silently.
     async fn store_revocation(
         &self,
         revocation: &ProofHash,
         expires_at: DateTime<Utc>,
     ) -> Result<(), StoreRevocationError>;
 
-    /// Lookup revocations.
-    async fn lookup_revocations(
-        &self,
-        hashes: &[ProofHash],
-    ) -> Result<Vec<RevokedToken>, LookupRevocationError>;
+    /// Lookup which of the given token hashes have been revoked.
+    async fn lookup_revocations(&self, hashes: &[ProofHash]) -> Result<Vec<RevokedToken>, LookupRevocationError>;
 
-    /// Delete revoked tokens that expire before the given timestamp.
+    /// Delete revoked tokens that expired before the given threshold.
+    ///
+    /// Returns the number of deleted records.
     async fn delete_expired(&self, threshold: DateTime<Utc>) -> Result<u64, sqlx::Error>;
 }
 
@@ -81,10 +82,7 @@ impl RevocationDb for PostgresRevocationDb {
         Ok(())
     }
 
-    async fn lookup_revocations(
-        &self,
-        hashes: &[ProofHash],
-    ) -> Result<Vec<RevokedToken>, LookupRevocationError> {
+    async fn lookup_revocations(&self, hashes: &[ProofHash]) -> Result<Vec<RevokedToken>, LookupRevocationError> {
         if hashes.is_empty() {
             return Ok(Vec::new());
         }
@@ -107,27 +105,19 @@ impl RevocationDb for PostgresRevocationDb {
         })?;
         let mut output = Vec::new();
         for row in rows {
-            let Row {
-                token_hash,
-                revoked_at,
-            } = row;
+            let Row { token_hash, revoked_at } = row;
             let token_hash = hex::decode(&token_hash).map_err(|_| {
                 error!("Invalid hex public key in database: {token_hash}");
                 LookupRevocationError
             })?;
-            output.push(RevokedToken {
-                token_hash,
-                revoked_at,
-            });
+            output.push(RevokedToken { token_hash, revoked_at });
         }
         Ok(output)
     }
 
     async fn delete_expired(&self, threshold: DateTime<Utc>) -> Result<u64, sqlx::Error> {
-        let result = sqlx::query("DELETE FROM revocations WHERE expires_at < $1")
-            .bind(threshold)
-            .execute(&self.pool.0)
-            .await?;
+        let result =
+            sqlx::query("DELETE FROM revocations WHERE expires_at < $1").bind(threshold).execute(&self.pool.0).await?;
         Ok(result.rows_affected())
     }
 }
