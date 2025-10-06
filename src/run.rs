@@ -60,7 +60,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         .build_pair();
     let cors = CorsLayer::new()
         .allow_methods([http::Method::GET, http::Method::POST])
-        .allow_headers([http::header::CONTENT_TYPE])
+        .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
         .allow_origin(tower_http::cors::Any);
     let router = crate::routes::build_router(state).layer(prometheus_layer).layer(cors);
     let metrics_router = Router::new().route("/metrics", get(|| async move { metrics_handle.render() }));
