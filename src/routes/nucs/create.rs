@@ -72,6 +72,7 @@ where
     responses(
         (status = OK, body = CreateNucResponse, description = "A Nuc that can be used to delegate access to blind modules"),
         (status = 400, body = RequestHandlerError),
+        (status = 401, body = RequestHandlerError),
         (status = 412, body = RequestHandlerError),
     )
 )]

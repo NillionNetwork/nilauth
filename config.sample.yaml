@@ -11,7 +11,7 @@ payments:
   nilchain_url: http://127.0.0.1:26648
 
   subscriptions:
-    renewal_threshold_seconds: 60 
+    renewal_threshold_seconds: 60
     length_seconds: 120
     dollar_cost:
       nildb: 1
