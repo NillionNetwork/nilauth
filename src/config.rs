@@ -25,6 +25,10 @@ pub struct Config {
 }
 
 impl Config {
+    /// Loads configuration from a YAML file and/or environment variables.
+    ///
+    /// Environment variables are prefixed with `NILAUTH_` and use `__` as a separator,
+    /// for example, `NILAUTH_SERVER__BIND_ENDPOINT=0.0.0.0:8080`.
     pub fn load(path: Option<&str>) -> anyhow::Result<Self> {
         let mut builder =
             config::Config::builder().add_source(config::Environment::with_prefix("NILAUTH").separator("__"));
@@ -98,7 +102,7 @@ pub struct PaymentsConfig {
 #[serde_as]
 #[derive(Clone, Deserialize)]
 pub struct SubscriptionConfig {
-    /// The minimum time needed for a subscription to be renewed.
+    /// The minimum time before expiration that a subscription can be renewed.
     #[serde_as(as = "serde_with::DurationSeconds<u64>")]
     #[serde(rename = "renewal_threshold_seconds")]
     pub renewal_threshold: Duration,

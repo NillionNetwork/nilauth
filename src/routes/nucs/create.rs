@@ -17,6 +17,7 @@ use strum::EnumDiscriminants;
 use tracing::{error, info};
 use utoipa::ToSchema;
 
+/// The legacy payload format for creating a Nuc, used for `did:nil` authentication.
 #[derive(Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 struct LegacySignablePayload {
@@ -29,6 +30,7 @@ struct LegacySignablePayload {
     blind_module: BlindModule,
 }
 
+/// A request to create a Nuc, used for modern `did:key` identity Nuc authentication.
 #[derive(Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct CreateNucRequest {
@@ -38,12 +40,12 @@ pub(crate) struct CreateNucRequest {
 /// The response to a Nuc create request.
 #[derive(Debug, Serialize, ToSchema)]
 pub(crate) struct CreateNucResponse {
-    /// The token in JWT serialized form.
+    /// The token in Jwt serialized form.
     #[schema(examples(crate::docs::nuc))]
     token: String,
 }
 
-/// Optional identity Nuc authentication wrapper that rejects invalid tokens
+/// Optional identity Nuc authentication wrapper that rejects invalid tokens.
 pub(crate) struct OptionalIdentityNuc(Option<IdentityNuc>);
 
 impl<S> FromRequestParts<S> for OptionalIdentityNuc

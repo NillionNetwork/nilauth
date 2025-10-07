@@ -1,6 +1,6 @@
 use clap::Parser;
 
-/// Nillion authority service.
+/// Nillion authority service command-line arguments.
 #[derive(Parser)]
 pub struct Cli {
     /// The path to the config file.

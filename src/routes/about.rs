@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use utoipa::ToSchema;
 
+/// General information about a nilauth instance.
 #[derive(Serialize, ToSchema)]
 pub(crate) struct About {
     #[serde(with = "hex::serde")]
@@ -15,6 +16,7 @@ pub(crate) struct About {
     started: DateTime<Utc>,
 }
 
+/// Build metadata for the nilauth service.
 #[derive(Serialize, ToSchema)]
 struct BuildInfo {
     #[schema(examples("ff0d9198d1b8819527bc036a58f875c4046b6f21"))]

@@ -28,6 +28,7 @@ pub(crate) struct CoinGeckoTokenPriceService {
 }
 
 impl CoinGeckoTokenPriceService {
+    /// Creates a new `CoinGeckoTokenPriceService`.
     pub(crate) fn new(config: TokenPriceConfig) -> anyhow::Result<Self> {
         let TokenPriceConfig { base_url, api_key, coin_id, request_timeout } = config;
         let client = reqwest::Client::builder().timeout(request_timeout).build()?;
@@ -96,6 +97,7 @@ impl TokenPriceService for CoinGeckoTokenPriceService {
     }
 }
 
+/// A cached token price with its retrieval timestamp.
 struct CachedPrice {
     timestamp: Instant,
     price: Decimal,

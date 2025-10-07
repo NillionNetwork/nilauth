@@ -15,12 +15,14 @@ pub(crate) trait SubscriptionCostService: Send + Sync + 'static {
     async fn blind_module_cost(&self, blind_module: BlindModule) -> Result<u64, SubscriptionCostError>;
 }
 
+/// Default implementation that calculates subscription cost based on token price and configured dollar amounts.
 pub(crate) struct DefaultSubscriptionCostService {
     token_price_service: Arc<dyn TokenPriceService>,
     costs: BlindModuleCosts,
 }
 
 impl DefaultSubscriptionCostService {
+    /// Creates a new `DefaultSubscriptionCostService`.
     pub(crate) fn new(token_price_service: Arc<dyn TokenPriceService>, costs: BlindModuleCosts) -> Self {
         Self { token_price_service, costs }
     }

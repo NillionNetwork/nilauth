@@ -39,6 +39,7 @@ pub(crate) trait SubscriptionDb: Send + Sync + 'static {
     async fn store_invalid_payment(&self, tx_hash: &str, subscriber_did: &Did) -> sqlx::Result<()>;
 }
 
+/// The Nillion blind compute modules that require a subscription.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum BlindModule {
@@ -55,6 +56,7 @@ impl fmt::Display for BlindModule {
     }
 }
 
+/// A Postgres implementation of the `SubscriptionDb` trait.
 pub(crate) struct PostgresSubscriptionDb {
     pool: PostgresPool,
     config: SubscriptionConfig,
@@ -151,6 +153,7 @@ impl SubscriptionDb for PostgresSubscriptionDb {
     }
 }
 
+/// An error that can occur when attempting to credit a payment.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum CreditPaymentError {
     #[error("duplicate key")]

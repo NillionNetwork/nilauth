@@ -7,12 +7,14 @@ use tracing::{error, info};
 const CLEANUP_INTERVAL: Duration = Duration::from_secs(60);
 const CLEANUP_GRACE_PERIOD: Duration = Duration::from_secs(60);
 
+/// A background worker that periodically cleans up expired revoked tokens from the database.
 pub(crate) struct RevokedTokenCleaner {
     db: Arc<dyn RevocationDb>,
     time: Box<dyn TimeService>,
 }
 
 impl RevokedTokenCleaner {
+    /// Spawns the cleaner as a background tokio task.
     pub(crate) fn spawn(db: Arc<dyn RevocationDb>, time: Box<dyn TimeService>) {
         let this = Self { db, time };
         tokio::spawn(async move { this.run().await });

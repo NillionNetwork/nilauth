@@ -20,7 +20,7 @@ enum TokenExtractionError {
 }
 
 impl TokenExtractionError {
-    /// Converts the internal error into the final HTTP rejection tuple.
+    /// Converts the internal error into the final Http rejection tuple.
     fn into_rejection(self, token_type_name: &str) -> (StatusCode, Json<RequestHandlerError>) {
         let message = match self {
             Self::MissingHeader => format!("`{AUTHORIZATION_HEADER}` header missing"),
@@ -104,6 +104,7 @@ fn make_unauthorized(message: impl Into<String>) -> (StatusCode, Json<RequestHan
     (StatusCode::UNAUTHORIZED, Json(RequestHandlerError::new(message, "UNAUTHORIZED")))
 }
 
+/// State required by token extractors for validation.
 #[derive(Clone)]
 pub(crate) struct TokenValidatorState {
     validator: Arc<NucValidator>,

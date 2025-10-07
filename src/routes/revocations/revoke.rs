@@ -18,12 +18,12 @@ use tracing::info;
 const TOKEN_ARG: &str = "token";
 static REVOCATION_CMD: LazyLock<Command> = LazyLock::new(|| ["nuc", "revoke"].into());
 
-/// Revoke a token.
+/// Revoke a token, preventing it from being used in future operations.
 #[utoipa::path(
     post,
     path = "/revocations/revoke",
     responses(
-        (status = OK, body = ()),
+        (status = OK, body = (), description = "The token was successfully revoked."),
         (status = 400, body = RequestHandlerError),
     )
 )]

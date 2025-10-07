@@ -1,3 +1,5 @@
+//! Http route handlers and shared routing utilities.
+
 use crate::{auth::TokenValidatorState, state::AppState};
 use axum::{
     Extension, Router,
@@ -23,6 +25,7 @@ pub(crate) mod payments;
 pub(crate) mod revocations;
 pub(crate) mod subscriptions;
 
+/// Constructs the application router with all routes and middleware.
 pub fn build_router(state: AppState) -> Router {
     let state = Arc::new(state);
     let validator = NucValidator::new([state.parameters.public_key])

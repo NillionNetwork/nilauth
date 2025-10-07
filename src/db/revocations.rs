@@ -8,7 +8,7 @@ use sqlx::prelude::FromRow;
 use tracing::error;
 use utoipa::ToSchema;
 
-/// A revocations database.
+/// An interface for managing token revocations in the database.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub(crate) trait RevocationDb: Send + Sync + 'static {
@@ -57,11 +57,13 @@ impl From<sqlx::Error> for StoreRevocationError {
 #[error("internal error")]
 pub(crate) struct LookupRevocationError;
 
+/// A Postgres implementation of the `RevocationDb` trait.
 pub(crate) struct PostgresRevocationDb {
     pool: PostgresPool,
 }
 
 impl PostgresRevocationDb {
+    /// Creates a new `PostgresRevocationDb`.
     pub fn new(pool: PostgresPool) -> Self {
         Self { pool }
     }

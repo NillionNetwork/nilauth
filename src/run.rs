@@ -21,6 +21,11 @@ use tokio::{join, net::TcpListener};
 use tower_http::cors::CorsLayer;
 use tracing::info;
 
+/// Initializes and runs the nilauth service.
+///
+/// This function sets up the database connection, services, application state,
+/// and starts the main application and metrics servers. It also handles
+/// graceful shutdown on receiving a termination signal.
 pub async fn run(config: Config) -> anyhow::Result<()> {
     let signer = config.private_key.load_signer()?;
     let did = *signer.did();

@@ -45,6 +45,7 @@ pub struct AppState {
     pub parameters: Parameters,
 }
 
+/// Configuration parameters for the nilauth service.
 pub struct Parameters {
     /// The server's secret signer.
     pub signer: Box<dyn NucSigner>,
@@ -61,6 +62,6 @@ pub struct Parameters {
     /// The allowed slippage in the range 0-1.
     pub subscription_cost_slippage: Decimal,
 
-    /// The threshold at which a subscription can be renewd.
+    /// The threshold at which a subscription can be renewed.
     pub subscription_renewal_threshold: Duration,
 }
