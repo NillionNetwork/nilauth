@@ -79,7 +79,7 @@ pub(crate) async fn handler(
     let payload_bytes =
         serde_json::to_vec(&request.payload).map_err(|e| HandlerError::MalformedPayload(e.to_string()))?;
 
-    if request.payload.service_public_key != state.parameters.keypair.public_key() {
+    if request.payload.service_public_key != state.parameters.public_key {
         return Err(HandlerError::UnknownPublicKey);
     }
 
@@ -216,7 +216,7 @@ mod tests {
             let auth = IdentityNuc(nillion_nucs::validator::ValidatedNucToken {
                 token: nillion_nucs::token::NucToken {
                     issuer: request.payload.payer_did,
-                    audience: state.parameters.keypair.to_did(nillion_nucs::DidMethod::Key),
+                    audience: state.parameters.did,
                     subject: request.payload.payer_did,
                     not_before: None,
                     expires_at: None,
@@ -248,7 +248,7 @@ mod tests {
             payer_did,
             subscriber_did,
             blind_module,
-            service_public_key: handler.builder.keypair.public_key(),
+            service_public_key: handler.builder.public_key(),
         };
         let payload_bytes = serde_json::to_vec(&payload).expect("failed to serialize");
         let payload_hash = Sha256::digest(&payload_bytes);
@@ -289,7 +289,7 @@ mod tests {
             payer_did,
             subscriber_did,
             blind_module,
-            service_public_key: handler.builder.keypair.public_key(),
+            service_public_key: handler.builder.public_key(),
         };
         let payload_bytes = serde_json::to_vec(&payload).expect("failed to serialize");
         let payload_hash = Sha256::digest(&payload_bytes);

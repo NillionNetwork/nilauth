@@ -1,3 +1,5 @@
+//! The main binary entrypoint for the nilauth service.
+
 use clap::Parser;
 use nilauth::args::Cli;
 use nilauth::config::Config;

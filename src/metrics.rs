@@ -8,7 +8,7 @@ mod collector {
     pub struct ProcessMetricsCollector;
 
     impl ProcessMetricsCollector {
-        /// On non-linux warn that metrics are disabled.
+        /// On non-Linux systems, warns that process metrics collection is disabled.
         pub fn spawn() {
             warn!("Metrics collection is only supported on Linux.");
         }
@@ -30,7 +30,7 @@ mod collector {
     pub struct ProcessMetricsCollector;
 
     impl ProcessMetricsCollector {
-        /// Run the process metrics collector.
+        /// Spawns a background task to periodically collect and report process metrics.
         pub fn spawn() {
             tokio::spawn(async move {
                 loop {

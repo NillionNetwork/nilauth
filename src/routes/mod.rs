@@ -1,3 +1,5 @@
+//! Http route handlers and shared routing utilities.
+
 use crate::{auth::TokenValidatorState, state::AppState};
 use axum::{
     Extension, Router,
@@ -7,7 +9,7 @@ use axum::{
     routing::get,
 };
 use convert_case::{Case, Casing};
-use nillion_nucs::{DidMethod, validator::NucValidator};
+use nillion_nucs::validator::NucValidator;
 use serde::Serialize;
 use std::{ops::Deref, sync::Arc};
 use utoipa::{
@@ -23,12 +25,12 @@ pub(crate) mod payments;
 pub(crate) mod revocations;
 pub(crate) mod subscriptions;
 
+/// Constructs the application router with all routes and middleware.
 pub fn build_router(state: AppState) -> Router {
     let state = Arc::new(state);
-    let public_key = state.parameters.keypair.public_key();
-    let validator = NucValidator::new([public_key]).expect("Failed to create NucValidator from service public key.");
-    let nilauth_did = state.parameters.keypair.to_did(DidMethod::Key);
-    let validator_state = TokenValidatorState::new(validator, nilauth_did);
+    let validator = NucValidator::new([state.parameters.public_key])
+        .expect("Failed to create NucValidator from service public key.");
+    let validator_state = TokenValidatorState::new(validator, state.parameters.did);
     let openapi = OpenApiBuilder::new()
         .info(
             InfoBuilder::new()

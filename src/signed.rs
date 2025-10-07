@@ -1,9 +1,12 @@
+//! Legacy signed-payload authentication support for backward compatibility.
+
 use nillion_nucs::k256::PublicKey;
 use nillion_nucs::k256::ecdsa::signature::Verifier;
 use nillion_nucs::k256::ecdsa::{Signature, VerifyingKey};
 use serde::Deserialize;
 use utoipa::ToSchema;
 
+/// A signed request using ECDSA signatures for authentication.
 #[derive(Deserialize, ToSchema)]
 pub(crate) struct SignedRequest {
     #[serde(with = "hex::serde")]
@@ -20,6 +23,7 @@ pub(crate) struct SignedRequest {
 }
 
 impl SignedRequest {
+    /// Verifies the signature and returns the public key if valid.
     pub(crate) fn verify(&self) -> Result<PublicKey, VerificationError> {
         use VerificationError::*;
         let verifying_key = VerifyingKey::from_sec1_bytes(&self.public_key).map_err(|_| InvalidPublicKey)?;

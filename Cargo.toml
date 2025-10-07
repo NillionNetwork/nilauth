@@ -1,6 +1,6 @@
 [package]
 name = "nilauth"
-version = "1.0.0-rc.0"
+version = "1.0.0-rc.1"
 edition = "2024"
 
 [dependencies]
@@ -15,8 +15,8 @@ convert_case = "0.8"
 hex = { version = "0.4", features = ["serde"] }
 itertools = "0.14"
 metrics = "0.24"
-nilauth-client = { git = "https://github.com/NillionNetwork/nilauth-client-rs", rev = "e3b22843dc2eef8d12de88e611d565359c3338ae" }
-nillion-nucs = { git = "https://github.com/NillionNetwork/nuc-rs", rev = "7abf208eaf3e234edda7741ac7294e55fb78fc6b" }
+nilauth-client = { git = "https://github.com/NillionNetwork/nilauth-client-rs", rev = "ff2020b8b21b2719ece88d82b71a9fb84532170e" }
+nillion-nucs = { git = "https://github.com/NillionNetwork/nuc-rs", rev = "928bfb9bb1816396afbda33a6c5aa955a6b11641" }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 rust_decimal = "1.37"
 serde = { version = "1.0", features = ["derive"] }

@@ -20,7 +20,7 @@ enum TokenExtractionError {
 }
 
 impl TokenExtractionError {
-    /// Converts the internal error into the final HTTP rejection tuple.
+    /// Converts the internal error into the final Http rejection tuple.
     fn into_rejection(self, token_type_name: &str) -> (StatusCode, Json<RequestHandlerError>) {
         let message = match self {
             Self::MissingHeader => format!("`{AUTHORIZATION_HEADER}` header missing"),
@@ -104,6 +104,7 @@ fn make_unauthorized(message: impl Into<String>) -> (StatusCode, Json<RequestHan
     (StatusCode::UNAUTHORIZED, Json(RequestHandlerError::new(message, "UNAUTHORIZED")))
 }
 
+/// State required by token extractors for validation.
 #[derive(Clone)]
 pub(crate) struct TokenValidatorState {
     validator: Arc<NucValidator>,
@@ -121,7 +122,7 @@ mod tests {
     use super::*;
     use crate::tests::random_public_key;
     use axum::http::Request;
-    use nillion_nucs::{DidMethod, Keypair, Signer, builder::InvocationBuilder};
+    use nillion_nucs::{DidMethod, Signer, builder::InvocationBuilder};
 
     struct CapabilityNucBuilder {
         validator: NucValidator,
@@ -153,9 +154,12 @@ mod tests {
 
     #[tokio::test]
     async fn valid_token() {
-        let signer_keypair = Keypair::generate();
-        let signer = signer_keypair.signer(DidMethod::Key);
-        let validator = NucValidator::new([signer_keypair.public_key()]).unwrap();
+        let signer = Signer::generate(DidMethod::Key);
+        let public_key = match signer.did() {
+            Did::Key { public_key } => *public_key,
+            _ => panic!(),
+        };
+        let validator = NucValidator::new([public_key]).unwrap();
 
         let builder = CapabilityNucBuilder { validator, nilauth_did: Did::key(random_public_key()) };
 
@@ -163,7 +167,7 @@ mod tests {
             .command(["nil"])
             .audience(builder.nilauth_did)
             .subject(Did::key(random_public_key()))
-            .sign_and_serialize(&signer)
+            .sign_and_serialize(&*signer)
             .await
             .expect("failed to build token");
         let token = NucTokenEnvelope::decode(&serialized_token).unwrap();
@@ -181,12 +185,12 @@ mod tests {
     #[tokio::test]
     async fn invalid_signature() {
         let builder = CapabilityNucBuilder::default();
-        let signer = Keypair::generate().signer(DidMethod::Key);
+        let signer = Signer::generate(DidMethod::Key);
         let token = InvocationBuilder::new()
             .command(["nil"])
             .audience(builder.nilauth_did)
             .subject(Did::key(random_public_key()))
-            .sign_and_serialize(&signer)
+            .sign_and_serialize(&*signer)
             .await
             .expect("failed to build token");
         let (head, _) = token.rsplit_once('.').unwrap();
@@ -224,12 +228,12 @@ mod tests {
     #[tokio::test]
     async fn identity_nuc_valid_self_signed() {
         let builder = IdentityNucBuilder::default();
-        let signer = Keypair::generate().signer(DidMethod::Key);
+        let signer = Signer::generate(DidMethod::Key);
         let serialized_token = InvocationBuilder::new()
             .command(["nil"])
             .audience(builder.nilauth_did)
             .subject(*signer.did())
-            .sign_and_serialize(&signer)
+            .sign_and_serialize(&*signer)
             .await
             .expect("failed to build token");
         let token = NucTokenEnvelope::decode(&serialized_token).unwrap();

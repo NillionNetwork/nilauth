@@ -51,13 +51,13 @@ pub(crate) struct Subscription {
     renewable_at: DateTime<Utc>,
 }
 
-//// Get a subscription's status.
+/// Get a subscription's status.
 #[utoipa::path(
     get,
     path = "/subscriptions/status",
     params(SubscriptionStatusArgs),
     responses(
-        (status = OK, body = Subscription, description = "The details about the subscription associated with the input public key"),
+        (status = OK, body = Subscription, description = "The status of a subscription for a given Did and blind module"),
         (status = 400, body = RequestHandlerError),
     )
 )]
