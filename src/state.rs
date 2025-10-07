@@ -6,7 +6,7 @@ use crate::{
 use axum::extract::State;
 use chrono::{DateTime, Utc};
 use nilauth_client::nilchain_client::tx::PaymentTransactionRetriever;
-use nillion_nucs::Keypair;
+use nillion_nucs::{NucSigner, did::Did};
 use rust_decimal::Decimal;
 use std::{sync::Arc, time::Duration};
 
@@ -46,8 +46,14 @@ pub struct AppState {
 }
 
 pub struct Parameters {
-    /// The server's secret keypair.
-    pub keypair: Keypair,
+    /// The server's secret signer.
+    pub signer: Box<dyn NucSigner>,
+
+    /// The Did of the server's signer.
+    pub did: Did,
+
+    /// The public key of the server's signer.
+    pub public_key: [u8; 33],
 
     /// The timestamp at which nilauth was started.
     pub started_at: DateTime<Utc>,

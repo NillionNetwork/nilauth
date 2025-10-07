@@ -3,15 +3,15 @@ use crate::db::subscriptions::BlindModule;
 use crate::routes::Json;
 use crate::signed::{SignedRequest, VerificationError};
 use crate::{routes::RequestHandlerError, state::SharedState};
+use axum::extract::FromRequestParts;
 use axum::{
-    extract::FromRequestParts,
     http::StatusCode,
     response::{IntoResponse, Response},
 };
 use chrono::{DateTime, Utc};
 use metrics::counter;
 use nillion_nucs::token::Command;
-use nillion_nucs::{DidMethod, builder::DelegationBuilder, did::Did};
+use nillion_nucs::{builder::DelegationBuilder, did::Did};
 use serde::{Deserialize, Serialize};
 use strum::EnumDiscriminants;
 use tracing::{error, info};
@@ -30,6 +30,7 @@ struct LegacySignablePayload {
 }
 
 #[derive(Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct CreateNucRequest {
     blind_module: BlindModule,
 }
@@ -69,6 +70,7 @@ where
 #[utoipa::path(
     post,
     path = "/nucs/create",
+    request_body = CreateNucRequest,
     responses(
         (status = OK, body = CreateNucResponse, description = "A Nuc that can be used to delegate access to blind modules"),
         (status = 400, body = RequestHandlerError),
@@ -102,7 +104,7 @@ pub(crate) async fn handler(
         if payload.expires_at < state.services.time.current_time() {
             return Err(HandlerError::PayloadExpired);
         }
-        if payload.target_public_key != state.parameters.keypair.public_key() {
+        if payload.target_public_key != state.parameters.public_key {
             return Err(HandlerError::InvalidTargetPublicKey);
         }
         let _ = legacy_request.verify()?;
@@ -134,13 +136,13 @@ async fn handle_nuc_creation(
     };
 
     info!("Minting token for {requestor_did}, expires at '{expires_at}'");
-    let signer = state.parameters.keypair.signer(DidMethod::Key);
+    let signer = &state.parameters.signer;
     let token = DelegationBuilder::new()
         .command(["nil", segment])
         .subject(requestor_did)
         .audience(requestor_did)
         .expires_at(expires_at)
-        .sign_and_serialize(&signer)
+        .sign_and_serialize(signer.as_ref())
         .await
         .map_err(|e| {
             error!("Failed to sign token: {e}");

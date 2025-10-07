@@ -13,6 +13,7 @@ use axum::{Router, routing::get};
 use axum_prometheus::{EndpointLabel, PrometheusMetricLayerBuilder, metrics_exporter_prometheus::PrometheusBuilder};
 use chrono::Utc;
 use nilauth_client::nilchain_client::tx::DefaultPaymentTransactionRetriever;
+use nillion_nucs::did::Did;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::signal;
@@ -21,7 +22,12 @@ use tower_http::cors::CorsLayer;
 use tracing::info;
 
 pub async fn run(config: Config) -> anyhow::Result<()> {
-    let keypair = config.private_key.load_key()?;
+    let signer = config.private_key.load_signer()?;
+    let did = *signer.did();
+    let public_key = match did {
+        Did::Key { public_key } => public_key,
+        _ => anyhow::bail!("nilauth signer must be a did:key"),
+    };
     let token_price_service = Arc::new(CoinGeckoTokenPriceService::new(config.payments.token_price)?);
     let services = Services {
         tx: Box::new(DefaultPaymentTransactionRetriever::new(&config.payments.nilchain_url)?),
@@ -38,7 +44,9 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     };
     let state = AppState {
         parameters: Parameters {
-            keypair,
+            signer,
+            did,
+            public_key,
             started_at: Utc::now(),
             subscription_cost_slippage: config.payments.subscriptions.payment_slippage,
             subscription_renewal_threshold: config.payments.subscriptions.renewal_threshold,
