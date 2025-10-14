@@ -1,5 +1,4 @@
 use anyhow::Context;
-use nillion_nucs::{DidMethod, NucSigner, Signer};
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use serde_with::serde_as;
@@ -61,7 +60,7 @@ pub enum PrivateKeyConfig {
 
 impl PrivateKeyConfig {
     /// Load a signer using this configuration.
-    pub fn load_signer(&self) -> anyhow::Result<Box<dyn NucSigner>> {
+    pub fn load_private_key(&self) -> anyhow::Result<[u8; 32]> {
         let bytes: [u8; 32] = match self {
             PrivateKeyConfig::Hex(hex_bytes) => hex_bytes
                 .to_vec()
@@ -74,7 +73,7 @@ impl PrivateKeyConfig {
                 })?
             }
         };
-        Ok(Signer::from_private_key(&bytes, DidMethod::Key))
+        Ok(bytes)
     }
 }
 

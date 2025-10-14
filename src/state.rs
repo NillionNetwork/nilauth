@@ -50,6 +50,9 @@ pub struct Parameters {
     /// The server's secret signer.
     pub signer: Box<dyn NucSigner>,
 
+    /// The server's legacy secret signer.
+    pub legacy_signer: Box<dyn NucSigner>,
+
     /// The Did of the server's signer.
     pub did: Did,
 
