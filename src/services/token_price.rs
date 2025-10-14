@@ -55,7 +55,7 @@ impl TokenPriceService for CoinGeckoTokenPriceService {
         }
 
         let params = [("ids", self.coin_id.as_str()), ("vs_currencies", "usd")];
-        info!("Fetching token price from CoinGecko");
+        info!("Fetching token price from CoinGecko from URL {}, and params {params:?}", self.simple_price_url);
 
         let now = Instant::now();
         let response = self
@@ -64,7 +64,8 @@ impl TokenPriceService for CoinGeckoTokenPriceService {
             .query(&params)
             .header("X-CG-PRO-API-KEY", &self.api_key)
             .send()
-            .await;
+            .await
+            .and_then(|r| r.error_for_status());
         let elapsed = now.elapsed();
         histogram!("nil_token_price_fetch_seconds",).record(elapsed.as_millis() as f64 / 1000.0);
 
@@ -107,4 +108,15 @@ struct CachedPrice {
 #[derive(Debug, Deserialize)]
 struct TokenPrice {
     usd: Decimal,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn token_price_parsing() {
+        let input = "0.249524";
+        serde_json::from_str::<Decimal>(input).expect("parse failed");
+    }
 }

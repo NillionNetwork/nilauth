@@ -159,7 +159,7 @@ pub struct PostgresConfig {
 }
 
 fn default_token_price_base_url() -> String {
-    "https://pro-api.coingecko.com/".into()
+    "https://pro-api.coingecko.com".into()
 }
 
 fn default_coin_id() -> String {
