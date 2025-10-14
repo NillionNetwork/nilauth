@@ -18,7 +18,7 @@ metrics = "0.24"
 nilauth-client = { git = "https://github.com/NillionNetwork/nilauth-client-rs", rev = "ff2020b8b21b2719ece88d82b71a9fb84532170e" }
 nillion-nucs = { git = "https://github.com/NillionNetwork/nuc-rs", rev = "928bfb9bb1816396afbda33a6c5aa955a6b11641" }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
-rust_decimal = "1.37"
+rust_decimal = { version = "1.39", features = ["serde-float", "serde-arbitrary-precision"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_with = "3.14"

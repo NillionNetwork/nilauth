@@ -22,4 +22,4 @@ services:
     ports:
       - "30923:80"
     command: |
-      caddy respond --listen :80 --body '{"nillion":{"usd":1}}' --header "Content-Type: application/json" 
+      caddy respond --listen :80 --body '{"nillion":{"usd":1.0}}' --header "Content-Type: application/json" 
