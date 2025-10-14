@@ -88,6 +88,7 @@ pub(crate) async fn handler(
     let tx = state.services.tx.get(&tx_hash).await?;
     let payload_hash = Sha256::digest(&payload_bytes);
 
+    #[allow(deprecated)]
     if tx.resource != payload_hash.as_slice() {
         store_invalid_payment(&state, &tx_hash, &request.payload.subscriber_did).await;
         counter!("invalid_payments_total", "reason" => "hash").increment(1);
