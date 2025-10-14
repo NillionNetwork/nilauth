@@ -10,6 +10,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use metrics::counter;
+use nillion_nucs::NucSigner;
 use nillion_nucs::token::Command;
 use nillion_nucs::{builder::DelegationBuilder, did::Did};
 use serde::{Deserialize, Serialize};
@@ -117,19 +118,19 @@ pub(crate) async fn handler(
     OptionalIdentityNuc(opt_auth): OptionalIdentityNuc,
     Json(request): Json<serde_json::Value>,
 ) -> Result<Json<CreateNucResponse>, HandlerError> {
-    let (requestor_did, blind_module) = if let Some(auth) = opt_auth {
-        handle_modern_auth(auth, request).await?
+    let ((requestor_did, blind_module), signer) = if let Some(auth) = opt_auth {
+        (handle_modern_auth(auth, request).await?, &state.parameters.signer)
     } else {
-        handle_legacy_auth(&state, request).await?
+        (handle_legacy_auth(&state, request).await?, &state.parameters.legacy_signer)
     };
-
-    handle_nuc_creation(state, requestor_did, blind_module).await
+    handle_nuc_creation(&state, requestor_did, blind_module, signer.as_ref()).await
 }
 
 async fn handle_nuc_creation(
-    state: SharedState,
+    state: &SharedState,
     requestor_did: Did,
     blind_module: BlindModule,
+    signer: &dyn NucSigner,
 ) -> Result<Json<CreateNucResponse>, HandlerError> {
     let expires_at = match state.databases.subscriptions.find_subscription_end(&requestor_did, &blind_module).await {
         Ok(Some(timestamp)) if timestamp > state.services.time.current_time() => timestamp,
@@ -147,13 +148,12 @@ async fn handle_nuc_creation(
     };
 
     info!("Minting token for {requestor_did}, expires at '{expires_at}'");
-    let signer = &state.parameters.signer;
     let token = DelegationBuilder::new()
         .command(["nil", segment])
         .subject(requestor_did)
         .audience(requestor_did)
         .expires_at(expires_at)
-        .sign_and_serialize(signer.as_ref())
+        .sign_and_serialize(signer)
         .await
         .map_err(|e| {
             error!("Failed to sign token: {e}");

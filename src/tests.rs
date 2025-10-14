@@ -23,6 +23,7 @@ mock! {
 
 pub(crate) struct AppStateBuilder {
     pub(crate) signer: Box<dyn NucSigner>,
+    pub(crate) legacy_signer: Box<dyn NucSigner>,
     pub(crate) tx_retriever: MockPaymentRetriever,
     pub(crate) time_service: MockTimeService,
     pub(crate) subscription_costs_service: MockSubscriptionCostService,
@@ -35,6 +36,8 @@ impl Default for AppStateBuilder {
     fn default() -> Self {
         Self {
             signer: Signer::generate(DidMethod::Key),
+            #[allow(deprecated)]
+            legacy_signer: Signer::generate(DidMethod::Nil),
             tx_retriever: Default::default(),
             time_service: Default::default(),
             subscription_costs_service: Default::default(),
@@ -49,6 +52,7 @@ impl AppStateBuilder {
     pub(crate) fn build(self) -> Arc<AppState> {
         let Self {
             signer,
+            legacy_signer,
             tx_retriever,
             time_service,
             subscription_costs_service,
@@ -66,6 +70,7 @@ impl AppStateBuilder {
         Arc::new(AppState {
             parameters: Parameters {
                 signer,
+                legacy_signer,
                 did,
                 public_key,
                 started_at: Utc::now(),

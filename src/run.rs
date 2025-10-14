@@ -14,6 +14,7 @@ use axum_prometheus::{EndpointLabel, PrometheusMetricLayerBuilder, metrics_expor
 use chrono::Utc;
 use nilauth_client::nilchain_client::tx::DefaultPaymentTransactionRetriever;
 use nillion_nucs::did::Did;
+use nillion_nucs::{DidMethod, Signer};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::signal;
@@ -27,7 +28,10 @@ use tracing::info;
 /// and starts the main application and metrics servers. It also handles
 /// graceful shutdown on receiving a termination signal.
 pub async fn run(config: Config) -> anyhow::Result<()> {
-    let signer = config.private_key.load_signer()?;
+    let private_key = config.private_key.load_private_key()?;
+    let signer = Signer::from_private_key(&private_key, DidMethod::Key);
+    #[allow(deprecated)]
+    let legacy_signer = Signer::from_private_key(&private_key, DidMethod::Nil);
     let did = *signer.did();
     let public_key = match did {
         Did::Key { public_key } => public_key,
@@ -50,6 +54,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     let state = AppState {
         parameters: Parameters {
             signer,
+            legacy_signer,
             did,
             public_key,
             started_at: Utc::now(),
