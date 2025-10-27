@@ -15,8 +15,8 @@ convert_case = "0.8"
 hex = { version = "0.4", features = ["serde"] }
 itertools = "0.14"
 metrics = "0.24"
-nilauth-client = { git = "https://github.com/NillionNetwork/nilauth-client-rs", rev = "ff2020b8b21b2719ece88d82b71a9fb84532170e" }
-nillion-nucs = { git = "https://github.com/NillionNetwork/nuc-rs", rev = "928bfb9bb1816396afbda33a6c5aa955a6b11641" }
+nilauth-client = { git = "https://github.com/NillionNetwork/nilauth-client-rs", rev = "0b28d763ed4faa33f9e8cb3d82c1b6ae958016a6" }
+nillion-nucs = { git = "https://github.com/NillionNetwork/nuc-rs", rev = "27c075aa2300f5f5abd3d9fd02189216f6675917" }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 rust_decimal = { version = "1.39", features = ["serde-float", "serde-arbitrary-precision"] }
 serde = { version = "1.0", features = ["derive"] }
