@@ -9,6 +9,19 @@ use std::{fmt, ops::DerefMut};
 use tracing::{error, info};
 use utoipa::ToSchema;
 
+/// Details of an Ethereum payment to be recorded in the database.
+pub(crate) struct PaymentRecord {
+    pub tx_hash: String,
+    pub chain_id: u64,
+    pub amount_wei: String,
+    pub digest: String,
+    pub payer_address: String,
+    pub service_public_key: String,
+    pub blind_module: BlindModule,
+    pub payer_did: Did,
+    pub subscriber_did: Did,
+}
+
 /// An interface for managing user subscriptions in the database.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
@@ -26,17 +39,12 @@ pub(crate) trait SubscriptionDb: Send + Sync + 'static {
     ///
     /// This operation is transactional and idempotent based on the `tx_hash`.
     /// It will fail if the subscription is not yet within its renewable window.
-    async fn credit_payment(
-        &self,
-        tx_hash: &str,
-        subscriber_did: &Did,
-        blind_module: &BlindModule,
-    ) -> Result<(), CreditPaymentError>;
+    async fn credit_payment(&self, payment: PaymentRecord) -> Result<(), CreditPaymentError>;
 
     /// Stores a record of an invalid payment attempt.
     ///
     /// This is used to prevent replay attacks with invalid payloads.
-    async fn store_invalid_payment(&self, tx_hash: &str, subscriber_did: &Did) -> sqlx::Result<()>;
+    async fn store_invalid_payment(&self, payment: PaymentRecord) -> sqlx::Result<()>;
 }
 
 /// The Nillion blind compute modules that require a subscription.
@@ -104,15 +112,10 @@ impl SubscriptionDb for PostgresSubscriptionDb {
         self.do_find_subscription_end(subscriber_did, blind_module, &self.pool.0, false).await
     }
 
-    async fn credit_payment(
-        &self,
-        tx_hash: &str,
-        subscriber_did: &Did,
-        blind_module: &BlindModule,
-    ) -> Result<(), CreditPaymentError> {
+    async fn credit_payment(&self, payment: PaymentRecord) -> Result<(), CreditPaymentError> {
         let mut tx = self.pool.0.begin().await?;
         let subscription_ends_at =
-            self.do_find_subscription_end(subscriber_did, blind_module, tx.deref_mut(), true).await?;
+            self.do_find_subscription_end(&payment.subscriber_did, &payment.blind_module, tx.deref_mut(), true).await?;
         if let Some(ends_at) = subscription_ends_at
             && ends_at > Utc::now() + self.config.renewal_threshold
         {
@@ -120,12 +123,23 @@ impl SubscriptionDb for PostgresSubscriptionDb {
             return Err(CreditPaymentError::CannotRenewYet);
         }
 
-        let subscriber_did_str = subscriber_did.to_string();
-        query("INSERT INTO payments (tx_hash, subscriber_did, is_valid) VALUES ($1, $2, true)")
-            .bind(tx_hash)
-            .bind(&subscriber_did_str)
-            .execute(tx.deref_mut())
-            .await?;
+        let subscriber_did_str = payment.subscriber_did.to_string();
+        let payer_did_str = payment.payer_did.to_string();
+        query(
+            "INSERT INTO payments (tx_hash, chain_id, amount_wei, digest, payer_address, service_public_key, blind_module, payer_did, subscriber_did, is_valid) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)",
+        )
+        .bind(&payment.tx_hash)
+        .bind(payment.chain_id as i64)
+        .bind(&payment.amount_wei)
+        .bind(&payment.digest)
+        .bind(&payment.payer_address)
+        .bind(&payment.service_public_key)
+        .bind(payment.blind_module.to_string())
+        .bind(&payer_did_str)
+        .bind(&subscriber_did_str)
+        .execute(tx.deref_mut())
+        .await?;
 
         // Try to extend it if it's not there yet
         let default_ends_at = Utc::now() + self.config.length;
@@ -135,20 +149,31 @@ impl SubscriptionDb for PostgresSubscriptionDb {
             .max(default_ends_at);
         query("INSERT INTO subscriptions (subscriber_did, blind_module, ends_at) VALUES ($1, $2, $3) ON CONFLICT(subscriber_did, blind_module) DO UPDATE SET ends_at = $3")
             .bind(&subscriber_did_str)
-            .bind(blind_module.to_string())
+            .bind(payment.blind_module.to_string())
             .bind(ends_at)
             .execute(tx.deref_mut()).await?;
         tx.commit().await?;
         Ok(())
     }
 
-    async fn store_invalid_payment(&self, tx_hash: &str, subscriber_did: &Did) -> sqlx::Result<()> {
-        let subscriber_did_str = subscriber_did.to_string();
-        query("INSERT INTO payments (tx_hash, subscriber_did, is_valid) VALUES ($1, $2, false)")
-            .bind(tx_hash)
-            .bind(&subscriber_did_str)
-            .execute(&self.pool.0)
-            .await?;
+    async fn store_invalid_payment(&self, payment: PaymentRecord) -> sqlx::Result<()> {
+        let subscriber_did_str = payment.subscriber_did.to_string();
+        let payer_did_str = payment.payer_did.to_string();
+        query(
+            "INSERT INTO payments (tx_hash, chain_id, amount_wei, digest, payer_address, service_public_key, blind_module, payer_did, subscriber_did, is_valid) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false)",
+        )
+        .bind(&payment.tx_hash)
+        .bind(payment.chain_id as i64)
+        .bind(&payment.amount_wei)
+        .bind(&payment.digest)
+        .bind(&payment.payer_address)
+        .bind(&payment.service_public_key)
+        .bind(payment.blind_module.to_string())
+        .bind(&payer_did_str)
+        .bind(&subscriber_did_str)
+        .execute(&self.pool.0)
+        .await?;
         Ok(())
     }
 }

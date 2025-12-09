@@ -201,11 +201,3 @@ impl BurnWithDigestEventRetriever for AlloyBurnWithDigestEventRetriever {
         self.parse_log(matching_log)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // Note: Integration tests should use a real Anvil instance
-    // Unit tests can use mockall for the trait
-}

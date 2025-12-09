@@ -3,24 +3,19 @@ use axum::Router;
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, extract::Query};
-use nilauth_client::nilchain_client::{client::NillionChainClient, key::NillionChainPrivateKey};
 use rstest::fixture;
 use serde::Deserialize;
 use serde_json::json;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::{
     mem,
-    sync::{Arc, LazyLock, Mutex},
+    sync::{LazyLock, Mutex},
     thread,
     time::Duration,
 };
 use testcontainers_modules::{
     postgres::Postgres,
-    testcontainers::{
-        ContainerAsync, GenericImage, Image, ImageExt,
-        core::{ContainerPort, WaitFor, wait::LogWaitStrategy},
-        runners::AsyncRunner,
-    },
+    testcontainers::{ContainerAsync, Image, runners::AsyncRunner},
 };
 use tokio::net::TcpListener;
 use tokio::{runtime::Runtime, task::JoinHandle, time::sleep};
@@ -32,9 +27,17 @@ static SERVICES: Mutex<Option<Services>> = Mutex::new(None);
 const MAX_NILAUTH_START_RETRIES: u8 = 100;
 const TOKEN_PRICE_API_PORT: u16 = 59123;
 
+/// Anvil default configuration
+const ANVIL_RPC_URL: &str = "http://127.0.0.1:8545";
+const ANVIL_CHAIN_ID: u64 = 31337;
+
+/// Contract addresses from DeployLocal.s.sol
+/// These are deterministic when deploying to a fresh Anvil instance
+const NIL_TOKEN_ADDRESS: &str = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+const BURN_CONTRACT_ADDRESS: &str = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512";
+
 struct Services {
     postgres_container: ContainerAsync<Postgres>,
-    nilchaind_container: ContainerAsync<GenericImage>,
     nilauth_handle: JoinHandle<()>,
     token_price_handle: JoinHandle<()>,
     nilauth: NilAuth,
@@ -44,18 +47,20 @@ impl Services {
     async fn new() -> Self {
         let StartedContainer { container: postgres_container, port: postgres_port } = Self::start_postgres().await;
 
-        let StartedContainer { container: nilchaind_container, port: nilchaind_port } = Self::start_nilchaind().await;
-
         let token_price_handle = Self::start_token_price_api().await;
 
-        // adjust parameters so we point to the containers
+        // Adjust parameters to point to containers and local Anvil
+        // NOTE: Anvil must be running externally with contracts deployed
         let mut config = Config::load(Some("config.sample.yaml")).expect("invalid config");
         config.postgres.url = format!("postgres://postgres:postgres@127.0.0.1:{postgres_port}/postgres");
-        config.payments.nilchain_url = format!("http://127.0.0.1:{nilchaind_port}");
+        config.payments.ethereum_rpc_url = ANVIL_RPC_URL.to_string();
+        config.payments.nil_token_address = NIL_TOKEN_ADDRESS.to_string();
+        config.payments.burn_contract_address = BURN_CONTRACT_ADDRESS.to_string();
+        config.payments.chain_id = ANVIL_CHAIN_ID;
         config.payments.token_price.base_url = format!("http://127.0.0.1:{TOKEN_PRICE_API_PORT}");
 
         let (nilauth, nilauth_handle) = Self::start_nilauth(config).await;
-        Self { postgres_container, nilchaind_container, nilauth_handle, token_price_handle, nilauth }
+        Self { postgres_container, nilauth_handle, token_price_handle, nilauth }
     }
 
     fn nilauth(&self) -> NilAuth {
@@ -68,31 +73,9 @@ impl Services {
         StartedContainer { container, port }
     }
 
-    async fn start_nilchaind() -> StartedContainer<GenericImage> {
-        let container = GenericImage::new("ghcr.io/nillionnetwork/nilchain-devnet", "v0.1.0")
-            .with_wait_for(WaitFor::Log(LogWaitStrategy::stdout(b"Starting RPC HTTP server")))
-            .with_exposed_port(ContainerPort::Tcp(26648))
-            .with_exposed_port(ContainerPort::Tcp(26649))
-            .with_exposed_port(ContainerPort::Tcp(26650))
-            .with_env_var("NILCHAIND_CONSENSUS_TIMEOUT_COMMIT", "200ms")
-            .start()
-            .await
-            .expect("failed to start nilchain");
-        let port = container.get_host_port_ipv4(26648).await.expect("failed to get port");
-        StartedContainer { container, port }
-    }
-
     async fn start_nilauth(config: Config) -> (NilAuth, JoinHandle<()>) {
-        let payments_key = NillionChainPrivateKey::from_bytes(
-            b"\x97\xf4\x98\x89\xfc\xee\xd8\x8a\x9c\xdd\xdb\x16\xa1a\xd1?j\x120|+9\x16?<<9|<-$4",
-        )
-        .expect("invalid payments key");
-        let nilchain_client = NillionChainClient::new(config.payments.nilchain_url.clone(), payments_key)
-            .await
-            .expect("failed to create payments client");
         let nilauth = NilAuth {
             endpoint: format!("http://127.0.0.1:{}", config.server.bind_endpoint.port()),
-            nilchain_client: Arc::new(tokio::sync::Mutex::new(nilchain_client)),
             config: config.clone(),
         };
         let handle = RUNTIME.spawn(async move {
@@ -131,7 +114,6 @@ struct StartedContainer<T: Image> {
 #[derive(Clone)]
 pub struct NilAuth {
     pub endpoint: String,
-    pub nilchain_client: Arc<tokio::sync::Mutex<NillionChainClient>>,
     pub config: Config,
 }
 
@@ -159,7 +141,6 @@ extern "C" fn cleanup_at_exit() {
     };
     RUNTIME.block_on(async move {
         let _ = services.postgres_container.rm().await;
-        let _ = services.nilchaind_container.rm().await;
         services.nilauth_handle.abort();
         services.token_price_handle.abort();
     });

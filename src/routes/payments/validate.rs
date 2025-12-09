@@ -1,5 +1,5 @@
 use crate::auth::IdentityNuc;
-use crate::db::subscriptions::BlindModule;
+use crate::db::subscriptions::{BlindModule, PaymentRecord};
 use crate::routes::Json;
 use crate::services::ethereum_rpc::EthereumRpcError;
 use crate::{db::subscriptions::CreditPaymentError, routes::RequestHandlerError, state::SharedState};
@@ -102,8 +102,25 @@ pub(crate) async fn handler(
 
     // Verify the event digest matches our computed digest
     let actual_digest = format!("0x{}", hex::encode(event.digest.as_slice()));
+    let payer_address = format!("{:?}", event.payer);
+    let service_public_key = hex::encode(request.payload.service_public_key);
+    let amount_wei_str = event.amount.to_string();
+
+    // Helper to build a PaymentRecord from the current context
+    let make_payment_record = || PaymentRecord {
+        tx_hash: tx_hash.clone(),
+        chain_id: event.chain_id,
+        amount_wei: amount_wei_str.clone(),
+        digest: actual_digest.clone(),
+        payer_address: payer_address.clone(),
+        service_public_key: service_public_key.clone(),
+        blind_module: request.payload.blind_module,
+        payer_did: request.payload.payer_did,
+        subscriber_did: request.payload.subscriber_did,
+    };
+
     if actual_digest != expected_digest {
-        store_invalid_payment(&state, &tx_hash, &request.payload.subscriber_did).await;
+        store_invalid_payment(&state, make_payment_record()).await;
         counter!("invalid_payments_total", "reason" => "digest_mismatch").increment(1);
         return Err(HandlerError::DigestMismatch);
     }
@@ -145,17 +162,17 @@ pub(crate) async fn handler(
     };
 
     // Credit the payment to the subscriber identified *in the payload*
-    state.databases.subscriptions.credit_payment(&tx_hash, &request.payload.subscriber_did, &blind_module).await?;
+    state.databases.subscriptions.credit_payment(make_payment_record()).await?;
     Ok(Json(()))
 }
 
-async fn store_invalid_payment(state: &SharedState, tx_hash: &str, subscriber_did: &Did) {
-    let result = state.databases.subscriptions.store_invalid_payment(tx_hash, subscriber_did).await;
+async fn store_invalid_payment(state: &SharedState, payment: PaymentRecord) {
+    let result = state.databases.subscriptions.store_invalid_payment(payment).await;
     if let Err(sqlx::Error::Database(e)) = result {
         if e.is_unique_violation() {
-            info!("Invalid transaction {tx_hash} was already processed, ignoring");
+            info!("Invalid transaction was already processed, ignoring");
         } else {
-            error!("Failed to store invalid payment with tx hash {tx_hash}: {e}");
+            error!("Failed to store invalid payment: {e}");
         }
     }
 }
@@ -306,7 +323,7 @@ mod tests {
             Ok(BurnWithDigestEvent {
                 payer: Address::ZERO,
                 amount: U256::from(amount_wei),
-                digest: B256::from_slice(payload_hash.as_slice()),
+                digest: B256::from_slice(payload_hash.as_ref()),
                 timestamp: U256::from(1234567890u64),
                 tx_hash: B256::ZERO,
                 block_number: 100,
@@ -319,8 +336,10 @@ mod tests {
             .builder
             .subscriptions_db
             .expect_credit_payment()
-            .with(eq(tx_hash.clone()), eq(subscriber_did), eq(blind_module))
-            .return_once(|_, _, _| Ok(()));
+            .withf(move |p| {
+                p.tx_hash == "0xdeadbeef" && p.subscriber_did == subscriber_did && p.blind_module == blind_module
+            })
+            .return_once(|_| Ok(()));
         handler
             .builder
             .subscription_costs_service
@@ -334,7 +353,7 @@ mod tests {
     #[tokio::test]
     async fn validate_chain_id_mismatch() {
         let tx_hash = "0xdeadbeef".to_string();
-        let mut handler = Handler::default();
+        let handler = Handler::default();
         let blind_module = BlindModule::NilDb;
         let payer_did = Did::key(random_public_key());
         let subscriber_did = Did::key(random_public_key());
