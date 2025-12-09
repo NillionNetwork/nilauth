@@ -87,8 +87,17 @@ pub struct MetricsConfig {
 /// The payments configuration.
 #[derive(Clone, Deserialize)]
 pub struct PaymentsConfig {
-    /// The nilchain RPC URL to use.
-    pub nilchain_url: String,
+    /// The Ethereum RPC URL to use.
+    pub ethereum_rpc_url: String,
+
+    /// The NIL ERC-20 token address.
+    pub nil_token_address: String,
+
+    /// The BurnWithDigest contract address.
+    pub burn_contract_address: String,
+
+    /// The Ethereum chain ID.
+    pub chain_id: u64,
 
     /// The subscription configuration.
     pub subscriptions: SubscriptionConfig,

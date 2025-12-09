@@ -1,13 +1,13 @@
 use crate::auth::IdentityNuc;
 use crate::db::subscriptions::BlindModule;
 use crate::routes::Json;
+use crate::services::ethereum_rpc::EthereumRpcError;
 use crate::{db::subscriptions::CreditPaymentError, routes::RequestHandlerError, state::SharedState};
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
 use metrics::counter;
-use nilauth_client::nilchain_client::tx::RetrieveError;
 use nillion_nucs::did::Did;
 use nillion_nucs::k256::sha2::{Digest, Sha256};
 use nillion_nucs::token::Command;
@@ -29,8 +29,7 @@ struct OnChainPaymentPayload {
     #[serde(with = "hex::serde")]
     #[schema(value_type = String)]
     nonce: [u8; 16],
-    /// The nillion blind module
-    /// being subscribe to.
+    /// The nillion blind module being subscribed to.
     blind_module: BlindModule,
     /// The user paying for the subscription.
     #[schema(value_type = String)]
@@ -38,6 +37,8 @@ struct OnChainPaymentPayload {
     /// The user the subscription is for.
     #[schema(value_type = String)]
     subscriber_did: Did,
+    /// The Ethereum chain ID this payment was made on.
+    chain_id: u64,
 }
 
 /// A request to validate a payment.
@@ -75,40 +76,67 @@ pub(crate) async fn handler(
         return Err(HandlerError::PayerMismatch);
     }
 
-    // Serialize the payload for hashing
+    // Verify chain ID in payload matches the configured chain
+    if request.payload.chain_id != state.parameters.chain_id {
+        return Err(HandlerError::ChainIdMismatch {
+            expected: state.parameters.chain_id,
+            actual: request.payload.chain_id,
+        });
+    }
+
+    // Serialize the payload using RFC 8785 canonical JSON for consistent hashing
     let payload_bytes =
-        serde_json::to_vec(&request.payload).map_err(|e| HandlerError::MalformedPayload(e.to_string()))?;
+        serde_jcs::to_vec(&request.payload).map_err(|e| HandlerError::MalformedPayload(e.to_string()))?;
 
     if request.payload.service_public_key != state.parameters.public_key {
         return Err(HandlerError::UnknownPublicKey);
     }
 
-    // Verify the received payload hash matches the on-chain resource hash
-    let tx_hash = request.tx_hash.to_lowercase();
-    let tx = state.services.tx.get(&tx_hash).await?;
+    // Compute the expected digest from the payload
     let payload_hash = Sha256::digest(&payload_bytes);
+    let expected_digest = format!("0x{}", hex::encode(payload_hash));
 
-    #[allow(deprecated)]
-    if tx.resource != payload_hash.as_slice() {
+    // Query Ethereum for the burn event
+    let tx_hash = request.tx_hash.to_lowercase();
+    let event = state.services.ethereum_event_retriever.get_event_by_tx_hash(&tx_hash).await?;
+
+    // Verify the event digest matches our computed digest
+    let actual_digest = format!("0x{}", hex::encode(event.digest.as_slice()));
+    if actual_digest != expected_digest {
         store_invalid_payment(&state, &tx_hash, &request.payload.subscriber_did).await;
-        counter!("invalid_payments_total", "reason" => "hash").increment(1);
-        return Err(HandlerError::HashMismatch);
+        counter!("invalid_payments_total", "reason" => "digest_mismatch").increment(1);
+        return Err(HandlerError::DigestMismatch);
+    }
+
+    // Verify chain ID from event matches
+    if event.chain_id != state.parameters.chain_id {
+        warn!("Event chain ID {} does not match configured chain ID {}", event.chain_id, state.parameters.chain_id);
+        counter!("invalid_payments_total", "reason" => "chain_id").increment(1);
+        return Err(HandlerError::ChainIdMismatch { expected: state.parameters.chain_id, actual: event.chain_id });
     }
 
     // Ensure payment is sufficient
     let blind_module = request.payload.blind_module;
     match state.services.subscription_cost.blind_module_cost(blind_module).await {
         Ok(cost_unils) => {
-            let unil_paid = Decimal::from(tx.amount.to_unil());
+            // Convert wei to NIL tokens (assuming 18 decimals)
+            // 1 NIL = 10^18 wei
+            // cost_unils is in microNIL (10^-6 NIL)
+            // So 1 unil = 10^12 wei
+            let wei_per_unil = 1_000_000_000_000u128; // 10^12
+            let amount_wei = event.amount.to::<u128>();
+            let amount_unils = amount_wei / wei_per_unil;
+
             let minimum_payment =
                 Decimal::from(cost_unils) * (Decimal::from(1) - state.parameters.subscription_cost_slippage);
-            if unil_paid < minimum_payment {
-                warn!("Expected payment for {minimum_payment} but got {unil_paid} unils");
+
+            if Decimal::from(amount_unils) < minimum_payment {
+                warn!("Expected payment for {minimum_payment} but got {amount_unils} unils (from {amount_wei} wei)");
                 counter!("invalid_payments_total", "reason" => "underpaid").increment(1);
                 return Err(HandlerError::InsufficientPayment);
             }
             counter!("payments_valid_total", "module" => blind_module.to_string()).increment(1);
-            info!("Processed payment for {unil_paid}unil, minimum was {minimum_payment}");
+            info!("Processed payment for {amount_unils}unil ({amount_wei}wei), minimum was {minimum_payment}unil");
         }
         Err(_) => {
             error!("Can't process transaction because we can't fetch subscription cost");
@@ -135,25 +163,33 @@ async fn store_invalid_payment(state: &SharedState, tx_hash: &str, subscriber_di
 #[derive(Debug, EnumDiscriminants)]
 pub(crate) enum HandlerError {
     CannotRenewYet,
-    HashMismatch,
+    ChainIdMismatch { expected: u64, actual: u64 },
+    DigestMismatch,
     InsufficientPayment,
     Internal,
     InvalidCommand(Command),
     MalformedPayload(String),
-    MalformedTransaction,
     PaymentAlreadyProcessed,
     PayerMismatch,
-    TransactionLookup,
-    TransactionNotCommitted,
+    EthereumRpcError(String),
     UnknownPublicKey,
 }
 
-impl From<RetrieveError> for HandlerError {
-    fn from(e: RetrieveError) -> Self {
+impl From<EthereumRpcError> for HandlerError {
+    fn from(e: EthereumRpcError) -> Self {
         match e {
-            RetrieveError::NotCommitted => Self::TransactionNotCommitted,
-            RetrieveError::Malformed(_) => Self::MalformedTransaction,
-            RetrieveError::TransactionFetch(_) => Self::TransactionLookup,
+            EthereumRpcError::EventNotFound(tx) => {
+                warn!("Event not found for transaction: {}", tx);
+                Self::EthereumRpcError(format!("Event not found for transaction: {}", tx))
+            }
+            EthereumRpcError::InvalidLogData(msg) => {
+                error!("Invalid log data: {}", msg);
+                Self::EthereumRpcError(format!("Invalid log data: {}", msg))
+            }
+            e => {
+                error!("Ethereum RPC error: {}", e);
+                Self::EthereumRpcError(e.to_string())
+            }
         }
     }
 }
@@ -176,7 +212,10 @@ impl IntoResponse for HandlerError {
             Self::PaymentAlreadyProcessed => {
                 (StatusCode::PRECONDITION_FAILED, "payment transaction already processed".into())
             }
-            Self::HashMismatch => (StatusCode::BAD_REQUEST, "payload hash does not match transaction nonce".into()),
+            Self::ChainIdMismatch { expected, actual } => {
+                (StatusCode::BAD_REQUEST, format!("chain ID mismatch: expected {}, got {}", expected, actual))
+            }
+            Self::DigestMismatch => (StatusCode::BAD_REQUEST, "payload digest does not match event digest".into()),
             Self::InsufficientPayment => (StatusCode::PRECONDITION_FAILED, "insufficient payment".into()),
             Self::Internal => (StatusCode::INTERNAL_SERVER_ERROR, "internal error".into()),
             Self::InvalidCommand(expected) => {
@@ -184,14 +223,10 @@ impl IntoResponse for HandlerError {
             }
             Self::MalformedPayload(reason) => (StatusCode::BAD_REQUEST, format!("malformed payload: {reason}")),
             Self::UnknownPublicKey => (StatusCode::BAD_REQUEST, "payload public key is different from ours".into()),
-            Self::TransactionNotCommitted => {
-                (StatusCode::PRECONDITION_FAILED, "transaction is not yet committed".into())
-            }
-            Self::MalformedTransaction => (StatusCode::BAD_REQUEST, "transaction payload is malformed".into()),
             Self::PayerMismatch => {
                 (StatusCode::BAD_REQUEST, "authenticated user does not match payer in payload".into())
             }
-            Self::TransactionLookup => (StatusCode::NOT_FOUND, "transaction not found".into()),
+            Self::EthereumRpcError(msg) => (StatusCode::BAD_REQUEST, format!("Ethereum RPC error: {}", msg)),
         };
         let response = RequestHandlerError::new(message, format!("{discriminant:?}"));
         (code, Json(response)).into_response()
@@ -201,10 +236,11 @@ impl IntoResponse for HandlerError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::ethereum_rpc::{BurnWithDigestEvent, EthereumRpcError};
     use crate::tests::{AppStateBuilder, random_public_key};
+    use alloy::primitives::{Address, B256, U256};
     use axum::extract::State;
     use mockall::predicate::eq;
-    use nilauth_client::nilchain_client::{transactions::TokenAmount, tx::PaymentTransaction};
 
     #[derive(Default)]
     struct Handler {
@@ -232,8 +268,12 @@ mod tests {
             handler(State(state), auth, Json(request)).await.map(|_| ())
         }
 
-        fn expect_tx_retrieve(&mut self, tx_hash: String, response: Result<PaymentTransaction, RetrieveError>) {
-            self.builder.tx_retriever.expect_get().with(eq(tx_hash)).return_once(move |_| response);
+        fn expect_event_retrieve(&mut self, tx_hash: String, response: Result<BurnWithDigestEvent, EthereumRpcError>) {
+            self.builder
+                .ethereum_event_retriever
+                .expect_get_event_by_tx_hash()
+                .with(eq(tx_hash))
+                .return_once(move |_| response);
         }
     }
 
@@ -244,21 +284,34 @@ mod tests {
         let blind_module = BlindModule::NilDb;
         let payer_did = Did::key(random_public_key());
         let subscriber_did = Did::key(random_public_key());
+        let chain_id = 31337u64; // Anvil default
+
         let payload = OnChainPaymentPayload {
             nonce: rand::random(),
             payer_did,
             subscriber_did,
             blind_module,
             service_public_key: handler.builder.public_key(),
+            chain_id,
         };
-        let payload_bytes = serde_json::to_vec(&payload).expect("failed to serialize");
+        let payload_bytes = serde_jcs::to_vec(&payload).expect("failed to serialize");
         let payload_hash = Sha256::digest(&payload_bytes);
-        handler.expect_tx_retrieve(
+
+        // 1 NIL = 10^18 wei, 1 unil = 10^12 wei
+        // 1,000,000 unils = 10^12 * 10^6 = 10^18 wei = 1 NIL
+        let amount_wei = 1_000_000_000_000_000_000u128; // 1 NIL = 1,000,000 unils
+
+        handler.expect_event_retrieve(
             tx_hash.clone(),
-            Ok(PaymentTransaction {
-                resource: payload_hash.to_vec(),
-                from_address: "".into(),
-                amount: TokenAmount::Unil(990_000),
+            Ok(BurnWithDigestEvent {
+                payer: Address::ZERO,
+                amount: U256::from(amount_wei),
+                digest: B256::from_slice(payload_hash.as_slice()),
+                timestamp: U256::from(1234567890u64),
+                tx_hash: B256::ZERO,
+                block_number: 100,
+                log_index: 0,
+                chain_id,
             }),
         );
 
@@ -273,44 +326,30 @@ mod tests {
             .subscription_costs_service
             .expect_blind_module_cost()
             .with(eq(blind_module))
-            .return_once(|_| Ok(1_000_000));
+            .return_once(|_| Ok(1_000_000)); // 1M unils
 
         handler.invoke(ValidatePaymentRequest { tx_hash, payload }).await.expect("request failed");
     }
 
     #[tokio::test]
-    async fn validate_underpayment() {
+    async fn validate_chain_id_mismatch() {
         let tx_hash = "0xdeadbeef".to_string();
         let mut handler = Handler::default();
         let blind_module = BlindModule::NilDb;
         let payer_did = Did::key(random_public_key());
         let subscriber_did = Did::key(random_public_key());
+
+        // Payload says chain 1 (mainnet), but we're configured for chain 31337 (anvil)
         let payload = OnChainPaymentPayload {
             nonce: rand::random(),
             payer_did,
             subscriber_did,
             blind_module,
             service_public_key: handler.builder.public_key(),
+            chain_id: 1, // Wrong chain!
         };
-        let payload_bytes = serde_json::to_vec(&payload).expect("failed to serialize");
-        let payload_hash = Sha256::digest(&payload_bytes);
-        handler.expect_tx_retrieve(
-            tx_hash.clone(),
-            Ok(PaymentTransaction {
-                resource: payload_hash.to_vec(),
-                from_address: "".into(),
-                amount: TokenAmount::Unil(989_999), // Insufficient amount
-            }),
-        );
-
-        handler
-            .builder
-            .subscription_costs_service
-            .expect_blind_module_cost()
-            .with(eq(blind_module))
-            .return_once(|_| Ok(1_000_000));
 
         let err = handler.invoke(ValidatePaymentRequest { tx_hash, payload }).await.expect_err("request succeeded");
-        assert!(matches!(err, HandlerError::InsufficientPayment));
+        assert!(matches!(err, HandlerError::ChainIdMismatch { expected: 31337, actual: 1 }));
     }
 }
