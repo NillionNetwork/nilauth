@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO subscriptions (subscriber_did, blind_module, ends_at) VALUES ($1, $2, $3)\n            ON CONFLICT(subscriber_did, blind_module) DO UPDATE SET ends_at = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "eda2914f2c694251437f51e76a754cccaaf3c7b738cd0cb76da5170c4cf04877"
+}

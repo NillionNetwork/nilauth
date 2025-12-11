@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use nillion_nucs::did::Did;
 use serde::{Deserialize, Serialize};
-use sqlx::{Executor, Postgres, prelude::FromRow, query, query_as};
-use std::{fmt, ops::DerefMut};
+use sqlx::PgConnection;
+use std::fmt;
 use tracing::{error, info};
 use utoipa::ToSchema;
 
@@ -75,28 +75,18 @@ impl PostgresSubscriptionDb {
         Self { pool, config }
     }
 
-    async fn do_find_subscription_end<'a, E>(
+    async fn find_subscription_end_for_update(
         &self,
-        subscriber_did: &Did,
-        blind_module: &BlindModule,
-        executor: E,
-        for_update: bool,
-    ) -> sqlx::Result<Option<DateTime<Utc>>>
-    where
-        E: Executor<'a, Database = Postgres>,
-    {
-        #[derive(FromRow)]
-        struct Row {
-            ends_at: DateTime<Utc>,
-        }
-        let subscriber_did_str = subscriber_did.to_string();
-        let for_update_suffix = if for_update { " FOR UPDATE" } else { "" };
-        let row: Option<Row> = query_as(&format!(
-            "SELECT ends_at FROM subscriptions WHERE subscriber_did = $1 AND blind_module = $2{for_update_suffix}"
-        ))
-        .bind(&subscriber_did_str)
-        .bind(blind_module.to_string())
-        .fetch_optional(executor)
+        subscriber_did: &str,
+        blind_module: &str,
+        conn: &mut PgConnection,
+    ) -> sqlx::Result<Option<DateTime<Utc>>> {
+        let row = sqlx::query!(
+            "SELECT ends_at FROM subscriptions WHERE subscriber_did = $1 AND blind_module = $2 FOR UPDATE",
+            subscriber_did,
+            blind_module
+        )
+        .fetch_optional(&mut *conn)
         .await?;
         Ok(row.map(|r| r.ends_at))
     }
@@ -109,13 +99,24 @@ impl SubscriptionDb for PostgresSubscriptionDb {
         subscriber_did: &Did,
         blind_module: &BlindModule,
     ) -> sqlx::Result<Option<DateTime<Utc>>> {
-        self.do_find_subscription_end(subscriber_did, blind_module, &self.pool.0, false).await
+        let subscriber_did_str = subscriber_did.to_string();
+        let blind_module_str = blind_module.to_string();
+        let row = sqlx::query!(
+            "SELECT ends_at FROM subscriptions WHERE subscriber_did = $1 AND blind_module = $2",
+            subscriber_did_str,
+            blind_module_str
+        )
+        .fetch_optional(&self.pool.0)
+        .await?;
+        Ok(row.map(|r| r.ends_at))
     }
 
     async fn credit_payment(&self, payment: PaymentRecord) -> Result<(), CreditPaymentError> {
         let mut tx = self.pool.0.begin().await?;
+        let subscriber_did_str = payment.subscriber_did.to_string();
+        let blind_module_str = payment.blind_module.to_string();
         let subscription_ends_at =
-            self.do_find_subscription_end(&payment.subscriber_did, &payment.blind_module, tx.deref_mut(), true).await?;
+            self.find_subscription_end_for_update(&subscriber_did_str, &blind_module_str, &mut *tx).await?;
         if let Some(ends_at) = subscription_ends_at
             && ends_at > Utc::now() + self.config.renewal_threshold
         {
@@ -123,22 +124,21 @@ impl SubscriptionDb for PostgresSubscriptionDb {
             return Err(CreditPaymentError::CannotRenewYet);
         }
 
-        let subscriber_did_str = payment.subscriber_did.to_string();
         let payer_did_str = payment.payer_did.to_string();
-        query(
-            "INSERT INTO payments (tx_hash, chain_id, amount_wei, digest, payer_address, service_public_key, blind_module, payer_did, subscriber_did, is_valid) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)",
+        sqlx::query!(
+            r#"INSERT INTO payments (tx_hash, chain_id, amount_wei, digest, payer_address, service_public_key, blind_module, payer_did, subscriber_did, is_valid)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)"#,
+            payment.tx_hash,
+            payment.chain_id as i64,
+            payment.amount_wei,
+            payment.digest,
+            payment.payer_address,
+            payment.service_public_key,
+            blind_module_str,
+            payer_did_str,
+            subscriber_did_str
         )
-        .bind(&payment.tx_hash)
-        .bind(payment.chain_id as i64)
-        .bind(&payment.amount_wei)
-        .bind(&payment.digest)
-        .bind(&payment.payer_address)
-        .bind(&payment.service_public_key)
-        .bind(payment.blind_module.to_string())
-        .bind(&payer_did_str)
-        .bind(&subscriber_did_str)
-        .execute(tx.deref_mut())
+        .execute(&mut *tx)
         .await?;
 
         // Try to extend it if it's not there yet
@@ -147,11 +147,15 @@ impl SubscriptionDb for PostgresSubscriptionDb {
             .map(|ends_at| ends_at + self.config.length)
             .unwrap_or(default_ends_at)
             .max(default_ends_at);
-        query("INSERT INTO subscriptions (subscriber_did, blind_module, ends_at) VALUES ($1, $2, $3) ON CONFLICT(subscriber_did, blind_module) DO UPDATE SET ends_at = $3")
-            .bind(&subscriber_did_str)
-            .bind(payment.blind_module.to_string())
-            .bind(ends_at)
-            .execute(tx.deref_mut()).await?;
+        sqlx::query!(
+            r#"INSERT INTO subscriptions (subscriber_did, blind_module, ends_at) VALUES ($1, $2, $3)
+            ON CONFLICT(subscriber_did, blind_module) DO UPDATE SET ends_at = $3"#,
+            subscriber_did_str,
+            blind_module_str,
+            ends_at
+        )
+        .execute(&mut *tx)
+        .await?;
         tx.commit().await?;
         Ok(())
     }
@@ -159,19 +163,20 @@ impl SubscriptionDb for PostgresSubscriptionDb {
     async fn store_invalid_payment(&self, payment: PaymentRecord) -> sqlx::Result<()> {
         let subscriber_did_str = payment.subscriber_did.to_string();
         let payer_did_str = payment.payer_did.to_string();
-        query(
-            "INSERT INTO payments (tx_hash, chain_id, amount_wei, digest, payer_address, service_public_key, blind_module, payer_did, subscriber_did, is_valid) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false)",
+        let blind_module_str = payment.blind_module.to_string();
+        sqlx::query!(
+            r#"INSERT INTO payments (tx_hash, chain_id, amount_wei, digest, payer_address, service_public_key, blind_module, payer_did, subscriber_did, is_valid)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false)"#,
+            payment.tx_hash,
+            payment.chain_id as i64,
+            payment.amount_wei,
+            payment.digest,
+            payment.payer_address,
+            payment.service_public_key,
+            blind_module_str,
+            payer_did_str,
+            subscriber_did_str
         )
-        .bind(&payment.tx_hash)
-        .bind(payment.chain_id as i64)
-        .bind(&payment.amount_wei)
-        .bind(&payment.digest)
-        .bind(&payment.payer_address)
-        .bind(&payment.service_public_key)
-        .bind(payment.blind_module.to_string())
-        .bind(&payer_did_str)
-        .bind(&subscriber_did_str)
         .execute(&self.pool.0)
         .await?;
         Ok(())
