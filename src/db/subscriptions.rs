@@ -116,7 +116,7 @@ impl SubscriptionDb for PostgresSubscriptionDb {
         let subscriber_did_str = payment.subscriber_did.to_string();
         let blind_module_str = payment.blind_module.to_string();
         let subscription_ends_at =
-            self.find_subscription_end_for_update(&subscriber_did_str, &blind_module_str, &mut *tx).await?;
+            self.find_subscription_end_for_update(&subscriber_did_str, &blind_module_str, &mut tx).await?;
         if let Some(ends_at) = subscription_ends_at
             && ends_at > Utc::now() + self.config.renewal_threshold
         {

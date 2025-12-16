@@ -8,9 +8,19 @@ services:
     ports:
       - "5432:5432"
 
+  anvil:
+    image: public.ecr.aws/k5d9x2g2/nil-anvil:main
+    ports:
+      - "8545:8545"
+    healthcheck:
+      test: ["CMD", "cast", "chain-id", "--rpc-url", "http://127.0.0.1:8545"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
   token-price-api:
     image: caddy:2
     ports:
       - "30923:80"
     command: |
-      caddy respond --listen :80 --body '{"nillion":{"usd":1.0}}' --header "Content-Type: application/json" 
+      caddy respond --listen :80 --body '{"nillion":{"usd":1.0}}' --header "Content-Type: application/json"

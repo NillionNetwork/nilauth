@@ -18,8 +18,8 @@ use std::time::Duration;
 
 mod setup;
 
-/// Anvil default account #0 private key (well-known, funded by default)
-const ANVIL_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+/// Anvil test user account #1 private key (has NIL tokens minted by DeployLocal.s.sol)
+const ANVIL_PRIVATE_KEY: &str = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
 
 /// Contract addresses from DeployLocal.s.sol
 const NIL_TOKEN_ADDRESS: &str = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
@@ -45,12 +45,11 @@ sol! {
 /// Helper to perform an on-chain burn transaction via Anvil.
 ///
 /// Returns the transaction hash.
-async fn burn_on_chain(amount_wei: u128, digest: [u8; 32]) -> String {
+async fn burn_on_chain(rpc_url: &str, amount_wei: u128, digest: [u8; 32]) -> String {
     let signer: PrivateKeySigner = ANVIL_PRIVATE_KEY.parse().expect("invalid private key");
     let wallet = EthereumWallet::from(signer);
 
-    let provider =
-        ProviderBuilder::new().wallet(wallet).connect_http("http://127.0.0.1:8545".parse().expect("invalid url"));
+    let provider = ProviderBuilder::new().wallet(wallet).connect_http(rpc_url.parse().expect("invalid url"));
 
     let nil_token = Address::from_str(NIL_TOKEN_ADDRESS).expect("invalid address");
     let burn_contract = Address::from_str(BURN_CONTRACT_ADDRESS).expect("invalid address");
@@ -58,7 +57,7 @@ async fn burn_on_chain(amount_wei: u128, digest: [u8; 32]) -> String {
     // First approve the burn contract to spend tokens
     let token = IERC20::new(nil_token, &provider);
     let approve_tx = token.approve(burn_contract, U256::from(amount_wei)).send().await.expect("approve failed");
-    let _ = approve_tx.watch().await.expect("approve watch failed");
+    let _ = approve_tx.get_receipt().await.expect("approve receipt failed");
 
     // Now perform the burn
     let burner = IBurnWithDigest::new(burn_contract, &provider);
@@ -72,6 +71,7 @@ async fn burn_on_chain(amount_wei: u128, digest: [u8; 32]) -> String {
 /// Helper to pay for a subscription using the new ERC-20 flow.
 async fn pay_subscription(
     client: &DefaultNilauthClient,
+    rpc_url: &str,
     blind_module: BlindModule,
     payer_signer: &dyn NucSigner,
     subscriber_did: Did,
@@ -91,7 +91,7 @@ async fn pay_subscription(
     let wei_per_unil = 1_000_000_000_000u128;
     let amount_wei = cost_unils as u128 * wei_per_unil;
 
-    let tx_hash = burn_on_chain(amount_wei, resource.digest).await;
+    let tx_hash = burn_on_chain(rpc_url, amount_wei, resource.digest).await;
 
     // 3. Validate the payment with nilauth
     client.validate_payment(&tx_hash, &resource.payload, payer_signer).await
@@ -101,6 +101,7 @@ async fn pay_subscription(
 #[tokio::test]
 #[serial]
 async fn pay_and_mint(nilauth: NilAuth) {
+    let rpc_url = &nilauth.config.payments.ethereum_rpc_url;
     let client = DefaultNilauthClient::create(&nilauth.endpoint, ANVIL_CHAIN_ID).await.expect("failed to build client");
     let payer_signer = Signer::generate(DidMethod::Key);
     let subscriber_signer = Signer::generate(DidMethod::Key);
@@ -108,7 +109,9 @@ async fn pay_and_mint(nilauth: NilAuth) {
     let blind_module = BlindModule::NilDb;
 
     // The Payer pays for the Subscriber's subscription
-    pay_subscription(&client, blind_module, &*payer_signer, subscriber_did).await.expect("failed to pay subscription");
+    pay_subscription(&client, rpc_url, blind_module, &*payer_signer, subscriber_did)
+        .await
+        .expect("failed to pay subscription");
 
     // The Subscriber can now check their status
     let subscription =
@@ -137,13 +140,14 @@ async fn pay_and_mint(nilauth: NilAuth) {
 #[tokio::test]
 #[serial]
 async fn pay_all_modules(nilauth: NilAuth) {
+    let rpc_url = &nilauth.config.payments.ethereum_rpc_url;
     let client = DefaultNilauthClient::create(&nilauth.endpoint, ANVIL_CHAIN_ID).await.expect("failed to build client");
     let payer_signer = Signer::generate(DidMethod::Key);
     let subscriber_signer = Signer::generate(DidMethod::Key);
     let subscriber_did = *subscriber_signer.did();
 
     for blind_module in [BlindModule::NilDb, BlindModule::NilAi] {
-        pay_subscription(&client, blind_module, &*payer_signer, subscriber_did)
+        pay_subscription(&client, rpc_url, blind_module, &*payer_signer, subscriber_did)
             .await
             .expect("failed to pay subscription");
     }
@@ -174,16 +178,19 @@ async fn mint_without_paying(nilauth: NilAuth) {
 #[tokio::test]
 #[serial]
 async fn pay_too_soon(nilauth: NilAuth) {
+    let rpc_url = &nilauth.config.payments.ethereum_rpc_url;
     let client = DefaultNilauthClient::create(&nilauth.endpoint, ANVIL_CHAIN_ID).await.expect("failed to build client");
     let payer_signer = Signer::generate(DidMethod::Key);
     let subscriber_signer = Signer::generate(DidMethod::Key);
     let subscriber_did = *subscriber_signer.did();
     let blind_module = BlindModule::NilDb;
 
-    pay_subscription(&client, blind_module, &*payer_signer, subscriber_did).await.expect("failed to pay subscription");
+    pay_subscription(&client, rpc_url, blind_module, &*payer_signer, subscriber_did)
+        .await
+        .expect("failed to pay subscription");
 
     // Pay again, this should fail because we just started our subscription
-    let err = pay_subscription(&client, blind_module, &*payer_signer, subscriber_did)
+    let err = pay_subscription(&client, rpc_url, blind_module, &*payer_signer, subscriber_did)
         .await
         .expect_err("subscription payment succeeded");
     let ValidatePaymentError::Request(err) = err else { panic!("not a request error: {err}") };
@@ -194,13 +201,16 @@ async fn pay_too_soon(nilauth: NilAuth) {
 #[tokio::test]
 #[serial]
 async fn list_unrevoked(nilauth: NilAuth) {
+    let rpc_url = &nilauth.config.payments.ethereum_rpc_url;
     let client = DefaultNilauthClient::create(&nilauth.endpoint, ANVIL_CHAIN_ID).await.expect("failed to build client");
     let payer_signer = Signer::generate(DidMethod::Key);
     let subscriber_signer = Signer::generate(DidMethod::Key);
     let subscriber_did = *subscriber_signer.did();
     let blind_module = BlindModule::NilDb;
 
-    pay_subscription(&client, blind_module, &*payer_signer, subscriber_did).await.expect("failed to pay subscription");
+    pay_subscription(&client, rpc_url, blind_module, &*payer_signer, subscriber_did)
+        .await
+        .expect("failed to pay subscription");
 
     let token = client.request_token(&*subscriber_signer, blind_module).await.expect("failed to mint");
     let token = NucTokenEnvelope::decode(&token).expect("invalid token");
@@ -212,13 +222,16 @@ async fn list_unrevoked(nilauth: NilAuth) {
 #[tokio::test]
 #[serial]
 async fn revoke(nilauth: NilAuth) {
+    let rpc_url = &nilauth.config.payments.ethereum_rpc_url;
     let client = DefaultNilauthClient::create(&nilauth.endpoint, ANVIL_CHAIN_ID).await.expect("failed to build client");
     let payer_signer = Signer::generate(DidMethod::Key);
     let subscriber_signer = Signer::generate(DidMethod::Key);
     let subscriber_did = *subscriber_signer.did();
     let blind_module = BlindModule::NilDb;
 
-    pay_subscription(&client, blind_module, &*payer_signer, subscriber_did).await.expect("failed to pay subscription");
+    pay_subscription(&client, rpc_url, blind_module, &*payer_signer, subscriber_did)
+        .await
+        .expect("failed to pay subscription");
 
     // The subscriber gets a token, creates a new one and revokes it
     let token = client.request_token(&*subscriber_signer, blind_module).await.expect("failed to mint");
