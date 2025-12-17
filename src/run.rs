@@ -3,6 +3,7 @@ use crate::config::Config;
 use crate::db::revocations::PostgresRevocationDb;
 use crate::db::{PostgresPool, subscriptions::PostgresSubscriptionDb};
 use crate::metrics::ProcessMetricsCollector;
+use crate::services::ethereum_rpc::AlloyBurnWithDigestEventRetriever;
 use crate::services::subscription_cost::DefaultSubscriptionCostService;
 use crate::services::token_price::CoinGeckoTokenPriceService;
 use crate::state::{AppState, Databases, Parameters, Services};
@@ -12,7 +13,6 @@ use axum::http;
 use axum::{Router, routing::get};
 use axum_prometheus::{EndpointLabel, PrometheusMetricLayerBuilder, metrics_exporter_prometheus::PrometheusBuilder};
 use chrono::Utc;
-use nilauth_client::nilchain_client::tx::DefaultPaymentTransactionRetriever;
 use nillion_nucs::did::Did;
 use nillion_nucs::{DidMethod, Signer};
 use std::net::SocketAddr;
@@ -28,6 +28,21 @@ use tracing::info;
 /// and starts the main application and metrics servers. It also handles
 /// graceful shutdown on receiving a termination signal.
 pub async fn run(config: Config) -> anyhow::Result<()> {
+    info!("Starting nilauth service");
+    info!(
+        server_endpoint = %config.server.bind_endpoint,
+        metrics_endpoint = %config.metrics.bind_endpoint,
+        chain_id = config.payments.chain_id,
+        burn_contract = %config.payments.burn_contract_address,
+        nil_token = %config.payments.nil_token_address,
+        subscription_length_secs = config.payments.subscriptions.length.as_secs(),
+        renewal_threshold_secs = config.payments.subscriptions.renewal_threshold.as_secs(),
+        payment_slippage = %config.payments.subscriptions.payment_slippage,
+        nildb_cost_usd = %config.payments.subscriptions.dollar_cost.nildb,
+        nilai_cost_usd = %config.payments.subscriptions.dollar_cost.nilai,
+        "Configuration loaded"
+    );
+
     let private_key = config.private_key.load_private_key()?;
     let signer = Signer::from_private_key(&private_key, DidMethod::Key);
     #[allow(deprecated)]
@@ -37,9 +52,20 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         Did::Key { public_key } => public_key,
         _ => anyhow::bail!("nilauth signer must be a did:key"),
     };
+    info!(did = %did, "Authority identity loaded");
+
     let token_price_service = Arc::new(CoinGeckoTokenPriceService::new(config.payments.token_price)?);
+    let ethereum_event_retriever = AlloyBurnWithDigestEventRetriever::new(
+        &config.payments.ethereum_rpc_url,
+        &config.payments.burn_contract_address,
+        config.payments.chain_id,
+    )
+    .await
+    .context("failed to initialize Ethereum RPC client")?;
+    info!(chain_id = config.payments.chain_id, "Ethereum RPC client initialized and chain ID verified");
+
     let services = Services {
-        tx: Box::new(DefaultPaymentTransactionRetriever::new(&config.payments.nilchain_url)?),
+        ethereum_event_retriever: Box::new(ethereum_event_retriever),
         time: Box::new(DefaultTimeService),
         subscription_cost: Box::new(DefaultSubscriptionCostService::new(
             token_price_service,
@@ -60,6 +86,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             started_at: Utc::now(),
             subscription_cost_slippage: config.payments.subscriptions.payment_slippage,
             subscription_renewal_threshold: config.payments.subscriptions.renewal_threshold,
+            chain_id: config.payments.chain_id,
         },
         services,
         databases,

@@ -1,0 +1,37 @@
+# Sample configuration for local Anvil development
+# Copy this to config.yaml and update as needed
+
+server:
+  bind_endpoint: "127.0.0.1:40921"
+
+metrics:
+  bind_endpoint: "127.0.0.1:9090"
+
+private_key:
+  hex: "0000000000000000000000000000000000000000000000000000000000000001"
+
+payments:
+  # Local Anvil RPC endpoint
+  ethereum_rpc_url: "http://127.0.0.1:8545"
+  
+  # From DeployLocal.s.sol output
+  nil_token_address: "0x5FbDB2315678afecb367f032d93F642f64180aa3"
+  burn_contract_address: "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
+  
+  # Anvil chain ID
+  chain_id: 31337
+  
+  subscriptions:
+    renewal_threshold_seconds: 86400  # 1 day
+    length_seconds: 2592000  # 30 days
+    payment_slippage: 0.03  # 3%
+    dollar_cost:
+      nildb: 1.0
+      nilai: 1.0
+  
+  token_price:
+    base_url: http://localhost:30923
+    api_key: abc
+
+postgres:
+  url: "postgresql://postgres:postgres@localhost:5432/postgres"

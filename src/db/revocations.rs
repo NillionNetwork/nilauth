@@ -1,10 +1,8 @@
 use super::PostgresPool;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use itertools::Itertools;
 use nillion_nucs::token::ProofHash;
 use serde::Serialize;
-use sqlx::prelude::FromRow;
 use tracing::error;
 use utoipa::ToSchema;
 
@@ -76,9 +74,8 @@ impl RevocationDb for PostgresRevocationDb {
         revocation: &ProofHash,
         expires_at: DateTime<Utc>,
     ) -> Result<(), StoreRevocationError> {
-        sqlx::query("INSERT INTO revocations (token_hash, expires_at) VALUES ($1, $2)")
-            .bind(revocation.to_string())
-            .bind(expires_at)
+        let token_hash = revocation.to_string();
+        sqlx::query!("INSERT INTO revocations (token_hash, expires_at) VALUES ($1, $2)", token_hash, expires_at)
             .execute(&self.pool.0)
             .await?;
         Ok(())
@@ -89,37 +86,32 @@ impl RevocationDb for PostgresRevocationDb {
             return Ok(Vec::new());
         }
 
-        #[derive(FromRow)]
-        struct Row {
-            token_hash: String,
-            revoked_at: DateTime<Utc>,
-        }
+        // Convert hashes to strings for the query
+        let hash_strings: Vec<String> = hashes.iter().map(|h| h.to_string()).collect();
 
-        let placeholders = (1..=hashes.len()).map(|n| format!("${n}")).join(", ");
-        let raw_query = format!("SELECT * FROM revocations WHERE token_hash IN ({placeholders})");
-        let mut query = sqlx::query_as(&raw_query);
-        for hash in hashes {
-            query = query.bind(hash.to_string());
-        }
-        let rows: Vec<Row> = query.fetch_all(&self.pool.0).await.map_err(|e| {
-            error!("Failed to lookup revocations: {e}");
-            LookupRevocationError
-        })?;
+        let rows =
+            sqlx::query!("SELECT token_hash, revoked_at FROM revocations WHERE token_hash = ANY($1)", &hash_strings)
+                .fetch_all(&self.pool.0)
+                .await
+                .map_err(|e| {
+                    error!("Failed to lookup revocations: {e}");
+                    LookupRevocationError
+                })?;
+
         let mut output = Vec::new();
         for row in rows {
-            let Row { token_hash, revoked_at } = row;
-            let token_hash = hex::decode(&token_hash).map_err(|_| {
-                error!("Invalid hex public key in database: {token_hash}");
+            let token_hash = hex::decode(&row.token_hash).map_err(|_| {
+                error!("Invalid hex public key in database: {}", row.token_hash);
                 LookupRevocationError
             })?;
-            output.push(RevokedToken { token_hash, revoked_at });
+            output.push(RevokedToken { token_hash, revoked_at: row.revoked_at });
         }
         Ok(output)
     }
 
     async fn delete_expired(&self, threshold: DateTime<Utc>) -> Result<u64, sqlx::Error> {
         let result =
-            sqlx::query("DELETE FROM revocations WHERE expires_at < $1").bind(threshold).execute(&self.pool.0).await?;
+            sqlx::query!("DELETE FROM revocations WHERE expires_at < $1", threshold).execute(&self.pool.0).await?;
         Ok(result.rows_affected())
     }
 }

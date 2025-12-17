@@ -1,11 +1,10 @@
 use crate::{
     db::{revocations::RevocationDb, subscriptions::SubscriptionDb},
-    services::subscription_cost::SubscriptionCostService,
+    services::{ethereum_rpc::BurnWithDigestEventRetriever, subscription_cost::SubscriptionCostService},
     time::TimeService,
 };
 use axum::extract::State;
 use chrono::{DateTime, Utc};
-use nilauth_client::nilchain_client::tx::PaymentTransactionRetriever;
 use nillion_nucs::{NucSigner, did::Did};
 use rust_decimal::Decimal;
 use std::{sync::Arc, time::Duration};
@@ -14,8 +13,8 @@ pub(crate) type SharedState = State<Arc<AppState>>;
 
 /// Services used by the application.
 pub struct Services {
-    /// A service to retrieve transactions.
-    pub tx: Box<dyn PaymentTransactionRetriever>,
+    /// A service to retrieve Ethereum burn events.
+    pub ethereum_event_retriever: Box<dyn BurnWithDigestEventRetriever>,
 
     /// A service that provides the current time.
     pub time: Box<dyn TimeService>,
@@ -67,4 +66,7 @@ pub struct Parameters {
 
     /// The threshold at which a subscription can be renewed.
     pub subscription_renewal_threshold: Duration,
+
+    /// The Ethereum chain ID.
+    pub chain_id: u64,
 }
