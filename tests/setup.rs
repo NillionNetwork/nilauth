@@ -1,8 +1,8 @@
+use ::nilauth::{config::Config, run::run};
+use axum::Router;
 use axum::http::StatusCode;
 use axum::routing::get;
-use axum::Router;
-use axum::{extract::Query, Json};
-use ::nilauth::{config::Config, run::run};
+use axum::{Json, extract::Query};
 use rstest::fixture;
 use serde::Deserialize;
 use serde_json::json;
@@ -15,7 +15,7 @@ use std::{
 };
 use testcontainers_modules::{
     postgres::Postgres,
-    testcontainers::{runners::AsyncRunner, ContainerAsync, GenericImage, Image},
+    testcontainers::{ContainerAsync, GenericImage, Image, runners::AsyncRunner},
 };
 use tokio::net::TcpListener;
 use tokio::{runtime::Runtime, task::JoinHandle, time::sleep};
