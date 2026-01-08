@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO payments (tx_hash, chain_id, amount_wei, digest, payer_address, service_public_key, blind_module, payer_did, subscriber_did, is_valid)\n             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)",
+  "query": "INSERT INTO payments (tx_hash, chain_id, amount_unils, digest, payer_address, service_public_key, blind_module, payer_did, subscriber_did, is_valid)\n             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)",
   "describe": {
     "columns": [],
     "parameters": {
@@ -18,5 +18,5 @@
     },
     "nullable": []
   },
-  "hash": "85d15e9bc3ea18b41b493a0272adbf1ed32d220094a5b9a1a6fa57d2d644fc43"
+  "hash": "742785848a42d0a4a724de7eeb6f81906857e8973535816f6127cf85ccc1b868"
 }

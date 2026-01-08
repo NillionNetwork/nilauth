@@ -1,8 +1,8 @@
+use ::nilauth::{config::Config, run::run};
+use axum::Router;
 use axum::http::StatusCode;
 use axum::routing::get;
-use axum::Router;
-use axum::{extract::Query, Json};
-use ::nilauth::{config::Config, run::run};
+use axum::{Json, extract::Query};
 use rstest::fixture;
 use serde::Deserialize;
 use serde_json::json;
@@ -15,7 +15,7 @@ use std::{
 };
 use testcontainers_modules::{
     postgres::Postgres,
-    testcontainers::{runners::AsyncRunner, ContainerAsync, GenericImage, Image},
+    testcontainers::{ContainerAsync, GenericImage, Image, runners::AsyncRunner},
 };
 use tokio::net::TcpListener;
 use tokio::{runtime::Runtime, task::JoinHandle, time::sleep};
@@ -37,7 +37,7 @@ const NIL_TOKEN_ADDRESS: &str = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
 const BURN_CONTRACT_ADDRESS: &str = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512";
 
 /// override via NIL_ANVIL_IMAGE
-const DEFAULT_NIL_ANVIL_IMAGE: &str = "public.ecr.aws/k5d9x2g2/nil-anvil:main";
+const DEFAULT_NIL_ANVIL_IMAGE: &str = "ghcr.io/nillionnetwork/nil-anvil:main";
 
 fn nil_anvil_image() -> (String, String) {
     let full = std::env::var("NIL_ANVIL_IMAGE").unwrap_or_else(|_| DEFAULT_NIL_ANVIL_IMAGE.to_string());

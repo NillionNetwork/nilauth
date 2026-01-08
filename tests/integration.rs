@@ -45,7 +45,7 @@ sol! {
 /// Helper to perform an on-chain burn transaction via Anvil.
 ///
 /// Returns the transaction hash.
-async fn burn_on_chain(rpc_url: &str, amount_wei: u128, digest: [u8; 32]) -> String {
+async fn burn_on_chain(rpc_url: &str, amount_unils: u128, digest: [u8; 32]) -> String {
     let signer: PrivateKeySigner = ANVIL_PRIVATE_KEY.parse().expect("invalid private key");
     let wallet = EthereumWallet::from(signer);
 
@@ -56,13 +56,13 @@ async fn burn_on_chain(rpc_url: &str, amount_wei: u128, digest: [u8; 32]) -> Str
 
     // First approve the burn contract to spend tokens
     let token = IERC20::new(nil_token, &provider);
-    let approve_tx = token.approve(burn_contract, U256::from(amount_wei)).send().await.expect("approve failed");
+    let approve_tx = token.approve(burn_contract, U256::from(amount_unils)).send().await.expect("approve failed");
     let _ = approve_tx.get_receipt().await.expect("approve receipt failed");
 
-    // Now perform the burn
+    // Now perform the burn (amount is in unils, which equals smallest token unit for 6-decimal NIL)
     let burner = IBurnWithDigest::new(burn_contract, &provider);
     let digest_b256 = B256::from_slice(&digest);
-    let burn_tx = burner.burnWithDigest(U256::from(amount_wei), digest_b256).send().await.expect("burn failed");
+    let burn_tx = burner.burnWithDigest(U256::from(amount_unils), digest_b256).send().await.expect("burn failed");
 
     let receipt = burn_tx.get_receipt().await.expect("burn receipt failed");
     format!("0x{}", hex::encode(receipt.transaction_hash.as_slice()))
