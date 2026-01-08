@@ -9,7 +9,7 @@ services:
       - "5432:5432"
 
   anvil:
-    image: public.ecr.aws/k5d9x2g2/nil-anvil:main
+    image: ghcr.io/nillionnetwork/nil-anvil:main
     ports:
       - "8545:8545"
     healthcheck:
