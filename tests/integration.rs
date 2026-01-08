@@ -87,11 +87,11 @@ async fn pay_subscription(
         })
     })?;
 
-    // Convert unils to wei (1 unil = 10^12 wei)
-    let wei_per_unil = 1_000_000_000_000u128;
-    let amount_wei = cost_unils as u128 * wei_per_unil;
+    // NIL token has 6 decimals, so 1 unil = 1 smallest token unit.
+    // No conversion needed - pass the unil amount directly to the contract.
+    let amount_token_units = cost_unils as u128;
 
-    let tx_hash = burn_on_chain(rpc_url, amount_wei, resource.digest).await;
+    let tx_hash = burn_on_chain(rpc_url, amount_token_units, resource.digest).await;
 
     // 3. Validate the payment with nilauth
     client.validate_payment(&tx_hash, &resource.payload, payer_signer).await

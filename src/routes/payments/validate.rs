@@ -136,13 +136,11 @@ pub(crate) async fn handler(
     let blind_module = request.payload.blind_module;
     match state.services.subscription_cost.blind_module_cost(blind_module).await {
         Ok(cost_unils) => {
-            // Convert wei to NIL tokens (assuming 18 decimals)
-            // 1 NIL = 10^18 wei
-            // cost_unils is in microNIL (10^-6 NIL)
-            // So 1 unil = 10^12 wei
-            let wei_per_unil = 1_000_000_000_000u128; // 10^12
+            // The NIL token has 6 decimals, meaning 1 NIL = 1,000,000 smallest units.
+            // We define 1 unil (micro-NIL) as 10^-6 NIL, which equals exactly 1 smallest unit.
+            // Therefore, the on-chain amount is already in unils - no conversion needed.
             let amount_wei = event.amount.to::<u128>();
-            let amount_unils = amount_wei / wei_per_unil;
+            let amount_unils = amount_wei; // 1 unil = 1 smallest token unit (6 decimals)
 
             let minimum_payment =
                 Decimal::from(cost_unils) * (Decimal::from(1) - state.parameters.subscription_cost_slippage);
@@ -314,15 +312,15 @@ mod tests {
         let payload_bytes = serde_jcs::to_vec(&payload).expect("failed to serialize");
         let payload_hash = Sha256::digest(&payload_bytes);
 
-        // 1 NIL = 10^18 wei, 1 unil = 10^12 wei
-        // 1,000,000 unils = 10^12 * 10^6 = 10^18 wei = 1 NIL
-        let amount_wei = 1_000_000_000_000_000_000u128; // 1 NIL = 1,000,000 unils
+        // NIL token has 6 decimals: 1 NIL = 1,000,000 smallest units = 1,000,000 unils
+        // Since 1 unil = 1 smallest token unit, we pass the unil amount directly.
+        let amount_unils = 1_000_000u128; // 1 NIL = 1,000,000 unils
 
         handler.expect_event_retrieve(
             tx_hash.clone(),
             Ok(BurnWithDigestEvent {
                 payer: Address::ZERO,
-                amount: U256::from(amount_wei),
+                amount: U256::from(amount_unils),
                 digest: B256::from_slice(payload_hash.as_ref()),
                 timestamp: U256::from(1234567890u64),
                 tx_hash: B256::ZERO,
