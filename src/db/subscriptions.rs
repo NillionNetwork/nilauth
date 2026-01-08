@@ -13,7 +13,8 @@ use utoipa::ToSchema;
 pub(crate) struct PaymentRecord {
     pub tx_hash: String,
     pub chain_id: u64,
-    pub amount_wei: String,
+    /// The payment amount in unils (smallest NIL token unit, 6 decimals).
+    pub amount_unils: String,
     pub digest: String,
     pub payer_address: String,
     pub service_public_key: String,
@@ -126,11 +127,11 @@ impl SubscriptionDb for PostgresSubscriptionDb {
 
         let payer_did_str = payment.payer_did.to_string();
         sqlx::query!(
-            r#"INSERT INTO payments (tx_hash, chain_id, amount_wei, digest, payer_address, service_public_key, blind_module, payer_did, subscriber_did, is_valid)
+            r#"INSERT INTO payments (tx_hash, chain_id, amount_unils, digest, payer_address, service_public_key, blind_module, payer_did, subscriber_did, is_valid)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)"#,
             payment.tx_hash,
             payment.chain_id as i64,
-            payment.amount_wei,
+            payment.amount_unils,
             payment.digest,
             payment.payer_address,
             payment.service_public_key,
@@ -165,11 +166,11 @@ impl SubscriptionDb for PostgresSubscriptionDb {
         let payer_did_str = payment.payer_did.to_string();
         let blind_module_str = payment.blind_module.to_string();
         sqlx::query!(
-            r#"INSERT INTO payments (tx_hash, chain_id, amount_wei, digest, payer_address, service_public_key, blind_module, payer_did, subscriber_did, is_valid)
+            r#"INSERT INTO payments (tx_hash, chain_id, amount_unils, digest, payer_address, service_public_key, blind_module, payer_did, subscriber_did, is_valid)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false)"#,
             payment.tx_hash,
             payment.chain_id as i64,
-            payment.amount_wei,
+            payment.amount_unils,
             payment.digest,
             payment.payer_address,
             payment.service_public_key,

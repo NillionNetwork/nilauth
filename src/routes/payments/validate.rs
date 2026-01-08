@@ -104,13 +104,13 @@ pub(crate) async fn handler(
     let actual_digest = format!("0x{}", hex::encode(event.digest.as_slice()));
     let payer_address = format!("{:?}", event.payer);
     let service_public_key = hex::encode(request.payload.service_public_key);
-    let amount_wei_str = event.amount.to_string();
+    let amount_unils_str = event.amount.to_string();
 
     // Helper to build a PaymentRecord from the current context
     let make_payment_record = || PaymentRecord {
         tx_hash: tx_hash.clone(),
         chain_id: event.chain_id,
-        amount_wei: amount_wei_str.clone(),
+        amount_unils: amount_unils_str.clone(),
         digest: actual_digest.clone(),
         payer_address: payer_address.clone(),
         service_public_key: service_public_key.clone(),
@@ -139,19 +139,18 @@ pub(crate) async fn handler(
             // The NIL token has 6 decimals, meaning 1 NIL = 1,000,000 smallest units.
             // We define 1 unil (micro-NIL) as 10^-6 NIL, which equals exactly 1 smallest unit.
             // Therefore, the on-chain amount is already in unils - no conversion needed.
-            let amount_wei = event.amount.to::<u128>();
-            let amount_unils = amount_wei; // 1 unil = 1 smallest token unit (6 decimals)
+            let amount_unils = event.amount.to::<u128>();
 
             let minimum_payment =
                 Decimal::from(cost_unils) * (Decimal::from(1) - state.parameters.subscription_cost_slippage);
 
             if Decimal::from(amount_unils) < minimum_payment {
-                warn!("Expected payment for {minimum_payment} but got {amount_unils} unils (from {amount_wei} wei)");
+                warn!("Expected payment for {minimum_payment} but got {amount_unils} unils");
                 counter!("invalid_payments_total", "reason" => "underpaid").increment(1);
                 return Err(HandlerError::InsufficientPayment);
             }
             counter!("payments_valid_total", "module" => blind_module.to_string()).increment(1);
-            info!("Processed payment for {amount_unils}unil ({amount_wei}wei), minimum was {minimum_payment}unil");
+            info!("Processed payment for {amount_unils} unils, minimum was {minimum_payment} unils");
         }
         Err(_) => {
             error!("Can't process transaction because we can't fetch subscription cost");
