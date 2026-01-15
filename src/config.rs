@@ -2,7 +2,7 @@ use anyhow::Context;
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use serde_with::serde_as;
-use std::{fs, net::SocketAddr, path::PathBuf, time::Duration};
+use std::{collections::HashMap, fs, net::SocketAddr, path::PathBuf, time::Duration};
 
 /// The configuration for the authority service.
 #[derive(Clone, Deserialize)]
@@ -13,8 +13,12 @@ pub struct Config {
     /// The private key
     pub private_key: PrivateKeyConfig,
 
-    /// Configuration for metrics.
+    /// Configuration for Prometheus metrics endpoint.
     pub metrics: MetricsConfig,
+
+    /// OpenTelemetry configuration.
+    #[serde(default)]
+    pub otel: OtelConfig,
 
     /// The payments configuration.
     pub payments: PaymentsConfig,
@@ -77,11 +81,73 @@ impl PrivateKeyConfig {
     }
 }
 
-/// The configuration for metrics.
+/// The configuration for Prometheus metrics endpoint.
 #[derive(Clone, Deserialize)]
 pub struct MetricsConfig {
-    /// The address to bind to.
+    /// The address to bind the Prometheus metrics endpoint to.
     pub bind_endpoint: SocketAddr,
+
+    /// Whether the Prometheus metrics endpoint is enabled.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+/// OpenTelemetry configuration.
+#[serde_as]
+#[derive(Clone, Default, Deserialize)]
+pub struct OtelConfig {
+    /// Whether OpenTelemetry is enabled.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// The global OTLP gRPC endpoint URL (e.g., "http://localhost:4317").
+    /// Can be overridden per-signal (e.g., `logs.endpoint`).
+    #[serde(default = "default_otlp_endpoint")]
+    pub endpoint: String,
+
+    /// The service name for OTEL resource attributes.
+    #[serde(default = "default_service_name")]
+    pub service_name: String,
+
+    /// The team responsible for the service.
+    #[serde(default = "default_team_name")]
+    pub team_name: String,
+
+    /// The deployment environment (e.g., "local", "staging", "production").
+    #[serde(default = "default_deployment_env")]
+    pub deployment_env: String,
+
+    /// Additional resource attributes as key-value pairs.
+    #[serde(default)]
+    pub resource_attributes: HashMap<String, String>,
+
+    /// The batch export timeout.
+    #[serde_as(as = "serde_with::DurationSeconds<u64>")]
+    #[serde(default = "default_export_timeout")]
+    pub export_timeout: Duration,
+
+    /// Log export configuration.
+    #[serde(default)]
+    pub logs: OtelLogsConfig,
+}
+
+/// OpenTelemetry logs export configuration.
+#[derive(Clone, Deserialize)]
+pub struct OtelLogsConfig {
+    /// Whether log export is enabled.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Optional endpoint override for log export.
+    /// If not set, uses the global `otel.endpoint`.
+    #[serde(default)]
+    pub endpoint: Option<String>,
+}
+
+impl Default for OtelLogsConfig {
+    fn default() -> Self {
+        Self { enabled: true, endpoint: None }
+    }
 }
 
 /// The payments configuration.
@@ -181,4 +247,28 @@ fn default_token_price_timeout() -> Duration {
 fn default_slippage() -> Decimal {
     // 3%
     Decimal::new(3, 2)
+}
+
+fn default_otlp_endpoint() -> String {
+    "http://localhost:4317".into()
+}
+
+fn default_service_name() -> String {
+    "nilauth".into()
+}
+
+fn default_team_name() -> String {
+    "nilauth".into()
+}
+
+fn default_deployment_env() -> String {
+    "local".into()
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_export_timeout() -> Duration {
+    Duration::from_secs(30)
 }

@@ -3,13 +3,12 @@
 use clap::Parser;
 use nilauth::args::Cli;
 use nilauth::config::Config;
+use nilauth::observability;
 use nilauth::run::run;
 use std::process::exit;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt().init();
-
     let cli = Cli::parse();
     let config = match Config::load(cli.config_file.as_deref()) {
         Ok(config) => config,
@@ -18,6 +17,17 @@ async fn main() -> anyhow::Result<()> {
             exit(1);
         }
     };
+
+    // Initialize observability (metrics or otel).
+    // This must happen before any logging calls.
+    let _observability_guard = match observability::init(&config) {
+        Ok(guard) => guard,
+        Err(e) => {
+            eprintln!("Failed to initialize observability: {e}");
+            exit(1);
+        }
+    };
+
     if let Err(e) = run(config).await {
         eprintln!("Failed to run server: {e:#}");
         exit(1);

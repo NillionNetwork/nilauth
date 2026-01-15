@@ -4,8 +4,35 @@ server:
 private_key:
   hex: 7c5c8d3114ac2410249ca2baae7dec86ac2950a389ac44a5fdca8941b92b6c86
 
+# Prometheus metrics endpoint configuration.
 metrics:
   bind_endpoint: 127.0.0.1:30922
+  enabled: true  # default: true
+
+# OpenTelemetry configuration.
+#
+# All OTEL settings can be overridden via environment variables (env vars take precedence):
+#   OTEL_SDK_DISABLED=true       - Disable OTEL SDK, use only fmt logging
+#   OTEL_ENDPOINT                - Global OTLP gRPC endpoint URL (default: http://localhost:4317)
+#   OTEL_SERVICE_NAME            - Service name for telemetry (default: nilauth)
+#   OTEL_TEAM_NAME               - Team responsible for the service (default: nilauth)
+#   OTEL_DEPLOYMENT_ENV          - Deployment environment (default: local)
+#   OTEL_RESOURCE_ATTRIBUTES     - Additional resource attributes as key=value,key=value
+#
+# NOTE: Only gRPC transport (port 4317) is supported.
+#
+# otel:
+#   enabled: true  # default: false
+#   endpoint: "http://localhost:4317"  # OTLP gRPC endpoint
+#   service_name: nilauth
+#   team_name: nilauth
+#   deployment_env: local
+#   resource_attributes:
+#     service.instance.id: nilauth-001
+#   export_timeout: 30
+#   logs:
+#     enabled: true  # default: true (when otel.enabled is true)
+#     endpoint: "http://localhost:4317"  # optional, overrides global endpoint
 
 payments:
   # Ethereum RPC endpoint (Anvil for local development)
