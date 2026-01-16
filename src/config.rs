@@ -129,6 +129,10 @@ pub struct OtelConfig {
     /// Log export configuration.
     #[serde(default)]
     pub logs: OtelLogsConfig,
+
+    /// Trace export configuration.
+    #[serde(default)]
+    pub traces: OtelTracesConfig,
 }
 
 /// OpenTelemetry logs export configuration.
@@ -145,6 +149,25 @@ pub struct OtelLogsConfig {
 }
 
 impl Default for OtelLogsConfig {
+    fn default() -> Self {
+        Self { enabled: true, endpoint: None }
+    }
+}
+
+/// OpenTelemetry traces export configuration.
+#[derive(Clone, Deserialize)]
+pub struct OtelTracesConfig {
+    /// Whether trace export is enabled.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Optional endpoint override for trace export.
+    /// If not set, uses the global `otel.endpoint`.
+    #[serde(default)]
+    pub endpoint: Option<String>,
+}
+
+impl Default for OtelTracesConfig {
     fn default() -> Self {
         Self { enabled: true, endpoint: None }
     }

@@ -1,17 +1,16 @@
 //! Observability initialization for the nilauth service.
 //!
-//! This module provides OpenTelemetry integration for exporting logs via OTLP gRPC.
-//! When OTEL is enabled, logs are exported to a configured endpoint while also being
-//! written to stdout via the standard fmt subscriber.
+//! This module provides OpenTelemetry integration for exporting logs and traces via OTLP gRPC.
+//! When OTEL is enabled, telemetry is exported to a configured endpoint.
 
 use std::env;
 
 use crate::config::{Config, OtelConfig};
-use opentelemetry::KeyValue;
+use opentelemetry::{KeyValue, trace::TracerProvider};
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
-use opentelemetry_otlp::{LogExporter, WithExportConfig};
+use opentelemetry_otlp::{LogExporter, SpanExporter, WithExportConfig};
 use opentelemetry_resource_detectors::ProcessResourceDetector;
-use opentelemetry_sdk::{Resource, logs::SdkLoggerProvider};
+use opentelemetry_sdk::{Resource, logs::SdkLoggerProvider, trace::SdkTracerProvider};
 use tracing::info;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -20,11 +19,17 @@ use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitEx
 /// When dropped, this guard ensures proper shutdown of any OTEL providers.
 pub struct ObservabilityGuard {
     logger_provider: Option<SdkLoggerProvider>,
+    tracer_provider: Option<SdkTracerProvider>,
 }
 
 impl ObservabilityGuard {
     /// Shuts down the observability providers, flushing any pending data.
     pub fn shutdown(mut self) {
+        if let Some(provider) = self.tracer_provider.take()
+            && let Err(e) = provider.shutdown()
+        {
+            eprintln!("Error shutting down tracer provider: {e}");
+        }
         if let Some(provider) = self.logger_provider.take()
             && let Err(e) = provider.shutdown()
         {
@@ -35,6 +40,11 @@ impl ObservabilityGuard {
 
 impl Drop for ObservabilityGuard {
     fn drop(&mut self) {
+        if let Some(provider) = self.tracer_provider.take()
+            && let Err(e) = provider.shutdown()
+        {
+            eprintln!("Error shutting down tracer provider: {e}");
+        }
         if let Some(provider) = self.logger_provider.take()
             && let Err(e) = provider.shutdown()
         {
@@ -106,47 +116,51 @@ fn apply_otel_env_overrides(config: &OtelConfig) -> OtelConfig {
 /// Initializes standard fmt logging.
 fn init_fmt_logging() -> anyhow::Result<ObservabilityGuard> {
     tracing_subscriber::fmt().init();
-    Ok(ObservabilityGuard { logger_provider: None })
+    Ok(ObservabilityGuard { logger_provider: None, tracer_provider: None })
 }
 
-/// Initializes OpenTelemetry logging with OTLP export.
+/// Initializes OpenTelemetry with OTLP export for logs and traces.
 fn init_otel(config: &OtelConfig) -> anyhow::Result<ObservabilityGuard> {
     let resource = create_resource(config);
 
+    // Initialize tracer provider if traces are enabled
+    let tracer_provider =
+        if config.traces.enabled { Some(init_tracer_provider(config, resource.clone())?) } else { None };
+
+    // Initialize logger provider if logs are enabled
     let logger_provider = if config.logs.enabled { Some(init_logger_provider(config, resource)?) } else { None };
 
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
-    // Build the tracing subscriber based on whether logs are enabled
-    if let Some(ref provider) = logger_provider {
-        let otel_layer = OpenTelemetryTracingBridge::new(provider);
-        tracing_subscriber::registry()
-            .with(env_filter)
-            .with(otel_layer)
-            .with(tracing_subscriber::fmt::layer())
-            .try_init()
-            .map_err(|e| anyhow::anyhow!("failed to initialize tracing subscriber: {e}"))?;
-    } else {
-        tracing_subscriber::registry()
-            .with(env_filter)
-            .with(tracing_subscriber::fmt::layer())
-            .try_init()
-            .map_err(|e| anyhow::anyhow!("failed to initialize tracing subscriber: {e}"))?;
-    }
+    // Build optional layers
+    let tracing_layer =
+        tracer_provider.as_ref().map(|tp| tracing_opentelemetry::layer().with_tracer(tp.tracer("nilauth")));
+    let logs_layer = logger_provider.as_ref().map(OpenTelemetryTracingBridge::new);
 
-    // Determine the effective logs endpoint (logs.endpoint overrides global endpoint)
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(tracing_layer)
+        .with(logs_layer)
+        .with(tracing_subscriber::fmt::layer())
+        .try_init()
+        .map_err(|e| anyhow::anyhow!("failed to initialize tracing subscriber: {e}"))?;
+
+    // Determine effective endpoints for logging
     let logs_endpoint = config.logs.endpoint.as_ref().unwrap_or(&config.endpoint);
+    let traces_endpoint = config.traces.endpoint.as_ref().unwrap_or(&config.endpoint);
 
     info!(
         logs_endpoint = %logs_endpoint,
+        traces_endpoint = %traces_endpoint,
         service_name = %config.service_name,
         team_name = %config.team_name,
         deployment_env = %config.deployment_env,
         logs_enabled = config.logs.enabled,
+        traces_enabled = config.traces.enabled,
         "OpenTelemetry initialized"
     );
 
-    Ok(ObservabilityGuard { logger_provider })
+    Ok(ObservabilityGuard { logger_provider, tracer_provider })
 }
 
 /// Creates an OTEL resource with service attributes.
@@ -170,10 +184,32 @@ fn create_resource(config: &OtelConfig) -> Resource {
         .build()
 }
 
+/// Initializes the OTEL tracer provider with OTLP export.
+fn init_tracer_provider(config: &OtelConfig, resource: Resource) -> anyhow::Result<SdkTracerProvider> {
+    let exporter = build_span_exporter(config)?;
+    let provider = SdkTracerProvider::builder().with_resource(resource).with_batch_exporter(exporter).build();
+
+    Ok(provider)
+}
+
+/// Builds the OTLP span exporter using gRPC transport.
+fn build_span_exporter(config: &OtelConfig) -> anyhow::Result<SpanExporter> {
+    // Use traces.endpoint if set, otherwise fall back to global endpoint
+    let endpoint = config.traces.endpoint.as_ref().unwrap_or(&config.endpoint);
+
+    let exporter = SpanExporter::builder()
+        .with_tonic()
+        .with_endpoint(endpoint)
+        .with_timeout(config.export_timeout)
+        .build()
+        .map_err(|e| anyhow::anyhow!("failed to build gRPC span exporter: {e}"))?;
+
+    Ok(exporter)
+}
+
 /// Initializes the OTEL logger provider with OTLP export.
 fn init_logger_provider(config: &OtelConfig, resource: Resource) -> anyhow::Result<SdkLoggerProvider> {
     let exporter = build_log_exporter(config)?;
-
     let provider = SdkLoggerProvider::builder().with_resource(resource).with_batch_exporter(exporter).build();
 
     Ok(provider)

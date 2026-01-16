@@ -20,7 +20,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize observability (metrics or otel).
     // This must happen before any logging calls.
-    let _observability_guard = match observability::init(&config) {
+    let observability_guard = match observability::init(&config) {
         Ok(guard) => guard,
         Err(e) => {
             eprintln!("Failed to initialize observability: {e}");
@@ -28,7 +28,13 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    if let Err(e) = run(config).await {
+    let result = run(config).await;
+
+    // Explicitly shutdown observability to flush pending traces/logs.
+    // Necessary because exit() doesn't run destructors.
+    observability_guard.shutdown();
+
+    if let Err(e) = result {
         eprintln!("Failed to run server: {e:#}");
         exit(1);
     } else {
