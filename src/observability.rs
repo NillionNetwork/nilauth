@@ -6,11 +6,16 @@
 use std::env;
 
 use crate::config::{Config, OtelConfig};
-use opentelemetry::{KeyValue, trace::TracerProvider};
+use opentelemetry::{KeyValue, global, trace::TracerProvider};
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
-use opentelemetry_otlp::{LogExporter, SpanExporter, WithExportConfig};
+use opentelemetry_otlp::{LogExporter, MetricExporter, SpanExporter, WithExportConfig};
 use opentelemetry_resource_detectors::ProcessResourceDetector;
-use opentelemetry_sdk::{Resource, logs::SdkLoggerProvider, trace::SdkTracerProvider};
+use opentelemetry_sdk::{
+    Resource,
+    logs::SdkLoggerProvider,
+    metrics::{PeriodicReader, SdkMeterProvider},
+    trace::SdkTracerProvider,
+};
 use tracing::info;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -20,11 +25,22 @@ use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitEx
 pub struct ObservabilityGuard {
     logger_provider: Option<SdkLoggerProvider>,
     tracer_provider: Option<SdkTracerProvider>,
+    meter_provider: Option<SdkMeterProvider>,
 }
 
 impl ObservabilityGuard {
+    /// Returns whether OTEL metrics are enabled.
+    pub fn otel_metrics_enabled(&self) -> bool {
+        self.meter_provider.is_some()
+    }
+
     /// Shuts down the observability providers, flushing any pending data.
     pub fn shutdown(mut self) {
+        if let Some(provider) = self.meter_provider.take()
+            && let Err(e) = provider.shutdown()
+        {
+            eprintln!("Error shutting down meter provider: {e}");
+        }
         if let Some(provider) = self.tracer_provider.take()
             && let Err(e) = provider.shutdown()
         {
@@ -40,6 +56,11 @@ impl ObservabilityGuard {
 
 impl Drop for ObservabilityGuard {
     fn drop(&mut self) {
+        if let Some(provider) = self.meter_provider.take()
+            && let Err(e) = provider.shutdown()
+        {
+            eprintln!("Error shutting down meter provider: {e}");
+        }
         if let Some(provider) = self.tracer_provider.take()
             && let Err(e) = provider.shutdown()
         {
@@ -116,10 +137,10 @@ fn apply_otel_env_overrides(config: &OtelConfig) -> OtelConfig {
 /// Initializes standard fmt logging.
 fn init_fmt_logging() -> anyhow::Result<ObservabilityGuard> {
     tracing_subscriber::fmt().init();
-    Ok(ObservabilityGuard { logger_provider: None, tracer_provider: None })
+    Ok(ObservabilityGuard { logger_provider: None, tracer_provider: None, meter_provider: None })
 }
 
-/// Initializes OpenTelemetry with OTLP export for logs and traces.
+/// Initializes OpenTelemetry with OTLP export for logs, traces, and metrics.
 fn init_otel(config: &OtelConfig) -> anyhow::Result<ObservabilityGuard> {
     let resource = create_resource(config);
 
@@ -128,7 +149,18 @@ fn init_otel(config: &OtelConfig) -> anyhow::Result<ObservabilityGuard> {
         if config.traces.enabled { Some(init_tracer_provider(config, resource.clone())?) } else { None };
 
     // Initialize logger provider if logs are enabled
-    let logger_provider = if config.logs.enabled { Some(init_logger_provider(config, resource)?) } else { None };
+    let logger_provider =
+        if config.logs.enabled { Some(init_logger_provider(config, resource.clone())?) } else { None };
+
+    // Initialize meter provider if metrics are enabled
+    let meter_provider = if config.metrics.enabled {
+        let provider = init_meter_provider(config, resource)?;
+        // Set the global meter provider so metrics can be recorded from anywhere
+        global::set_meter_provider(provider.clone());
+        Some(provider)
+    } else {
+        None
+    };
 
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
@@ -148,19 +180,22 @@ fn init_otel(config: &OtelConfig) -> anyhow::Result<ObservabilityGuard> {
     // Determine effective endpoints for logging
     let logs_endpoint = config.logs.endpoint.as_ref().unwrap_or(&config.endpoint);
     let traces_endpoint = config.traces.endpoint.as_ref().unwrap_or(&config.endpoint);
+    let metrics_endpoint = config.metrics.endpoint.as_ref().unwrap_or(&config.endpoint);
 
     info!(
         logs_endpoint = %logs_endpoint,
         traces_endpoint = %traces_endpoint,
+        metrics_endpoint = %metrics_endpoint,
         service_name = %config.service_name,
         team_name = %config.team_name,
         deployment_env = %config.deployment_env,
         logs_enabled = config.logs.enabled,
         traces_enabled = config.traces.enabled,
+        metrics_enabled = config.metrics.enabled,
         "OpenTelemetry initialized"
     );
 
-    Ok(ObservabilityGuard { logger_provider, tracer_provider })
+    Ok(ObservabilityGuard { logger_provider, tracer_provider, meter_provider })
 }
 
 /// Creates an OTEL resource with service attributes.
@@ -226,6 +261,30 @@ fn build_log_exporter(config: &OtelConfig) -> anyhow::Result<LogExporter> {
         .with_timeout(config.export_timeout)
         .build()
         .map_err(|e| anyhow::anyhow!("failed to build gRPC log exporter: {e}"))?;
+
+    Ok(exporter)
+}
+
+/// Initializes the OTEL meter provider with OTLP export.
+fn init_meter_provider(config: &OtelConfig, resource: Resource) -> anyhow::Result<SdkMeterProvider> {
+    let exporter = build_metric_exporter(config)?;
+    let reader = PeriodicReader::builder(exporter).build();
+    let provider = SdkMeterProvider::builder().with_resource(resource).with_reader(reader).build();
+
+    Ok(provider)
+}
+
+/// Builds the OTLP metric exporter using gRPC transport.
+fn build_metric_exporter(config: &OtelConfig) -> anyhow::Result<MetricExporter> {
+    // Use metrics.endpoint if set, otherwise fall back to global endpoint
+    let endpoint = config.metrics.endpoint.as_ref().unwrap_or(&config.endpoint);
+
+    let exporter = MetricExporter::builder()
+        .with_tonic()
+        .with_endpoint(endpoint)
+        .with_timeout(config.export_timeout)
+        .build()
+        .map_err(|e| anyhow::anyhow!("failed to build gRPC metric exporter: {e}"))?;
 
     Ok(exporter)
 }

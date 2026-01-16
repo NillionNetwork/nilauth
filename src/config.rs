@@ -133,6 +133,10 @@ pub struct OtelConfig {
     /// Trace export configuration.
     #[serde(default)]
     pub traces: OtelTracesConfig,
+
+    /// Metrics export configuration.
+    #[serde(default)]
+    pub metrics: OtelMetricsConfig,
 }
 
 /// OpenTelemetry logs export configuration.
@@ -171,6 +175,20 @@ impl Default for OtelTracesConfig {
     fn default() -> Self {
         Self { enabled: true, endpoint: None }
     }
+}
+
+/// OpenTelemetry metrics export configuration.
+#[derive(Clone, Default, Deserialize)]
+pub struct OtelMetricsConfig {
+    /// Whether metrics export is enabled.
+    /// When enabled, OTEL metrics are used instead of Prometheus metrics.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Optional endpoint override for metrics export.
+    /// If not set, uses the global `otel.endpoint`.
+    #[serde(default)]
+    pub endpoint: Option<String>,
 }
 
 /// The payments configuration.

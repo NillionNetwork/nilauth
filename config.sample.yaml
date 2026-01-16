@@ -36,6 +36,9 @@ metrics:
 #   traces:
 #     enabled: true  # default: true (when otel.enabled is true)
 #     endpoint: "http://localhost:4317"  # optional, overrides global endpoint
+#   metrics:
+#     enabled: false  # default: false - when enabled, disables Prometheus metrics
+#     endpoint: "http://localhost:4317"  # optional, overrides global endpoint
 
 payments:
   # Ethereum RPC endpoint (Anvil for local development)

@@ -1,5 +1,6 @@
 use crate::auth::IdentityNuc;
 use crate::db::subscriptions::{BlindModule, PaymentRecord};
+use crate::metrics;
 use crate::routes::Json;
 use crate::services::ethereum_rpc::EthereumRpcError;
 use crate::{db::subscriptions::CreditPaymentError, routes::RequestHandlerError, state::SharedState};
@@ -7,7 +8,6 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use metrics::counter;
 use nillion_nucs::did::Did;
 use nillion_nucs::k256::sha2::{Digest, Sha256};
 use nillion_nucs::token::Command;
@@ -121,14 +121,14 @@ pub(crate) async fn handler(
 
     if actual_digest != expected_digest {
         store_invalid_payment(&state, make_payment_record()).await;
-        counter!("invalid_payments_total", "reason" => "digest_mismatch").increment(1);
+        metrics::record_invalid_payment("digest_mismatch");
         return Err(HandlerError::DigestMismatch);
     }
 
     // Verify chain ID from event matches
     if event.chain_id != state.parameters.chain_id {
         warn!("Event chain ID {} does not match configured chain ID {}", event.chain_id, state.parameters.chain_id);
-        counter!("invalid_payments_total", "reason" => "chain_id").increment(1);
+        metrics::record_invalid_payment("chain_id");
         return Err(HandlerError::ChainIdMismatch { expected: state.parameters.chain_id, actual: event.chain_id });
     }
 
@@ -146,10 +146,10 @@ pub(crate) async fn handler(
 
             if Decimal::from(amount_unils) < minimum_payment {
                 warn!("Expected payment for {minimum_payment} but got {amount_unils} unils");
-                counter!("invalid_payments_total", "reason" => "underpaid").increment(1);
+                metrics::record_invalid_payment("underpaid");
                 return Err(HandlerError::InsufficientPayment);
             }
-            counter!("payments_valid_total", "module" => blind_module.to_string()).increment(1);
+            metrics::record_valid_payment(&blind_module.to_string());
             info!("Processed payment for {amount_unils} unils, minimum was {minimum_payment} unils");
         }
         Err(_) => {

@@ -1,7 +1,6 @@
-use crate::config::TokenPriceConfig;
+use crate::{config::TokenPriceConfig, metrics};
 use anyhow::{anyhow, bail};
 use async_trait::async_trait;
-use metrics::{counter, gauge, histogram};
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use std::{collections::HashMap, time::Duration};
@@ -50,7 +49,7 @@ impl TokenPriceService for CoinGeckoTokenPriceService {
     async fn nil_token_price(&self) -> anyhow::Result<Decimal> {
         let mut last_price = self.last_price.lock().await;
         if last_price.timestamp.elapsed() < PRICE_CACHE_DURATION {
-            counter!("nil_token_cache_hits_total").increment(1);
+            metrics::record_token_price_cache_hit();
             return Ok(last_price.price);
         }
 
@@ -66,8 +65,8 @@ impl TokenPriceService for CoinGeckoTokenPriceService {
             .send()
             .await
             .and_then(|r| r.error_for_status());
-        let elapsed = now.elapsed();
-        histogram!("nil_token_price_fetch_seconds",).record(elapsed.as_millis() as f64 / 1000.0);
+        let elapsed_seconds = now.elapsed().as_millis() as f64 / 1000.0;
+        metrics::record_token_price_fetch_duration(elapsed_seconds);
 
         let response = match response {
             Ok(response) => response,
@@ -87,8 +86,8 @@ impl TokenPriceService for CoinGeckoTokenPriceService {
         if price <= Decimal::from(0) {
             bail!("token price is <= 0: {price}")
         }
-        if let Ok(price) = f64::try_from(price) {
-            gauge!("nil_token_price").set(price);
+        if let Ok(price_f64) = f64::try_from(price) {
+            metrics::record_token_price(price_f64);
         }
 
         info!("Token price from CoinGecko: {price}");
