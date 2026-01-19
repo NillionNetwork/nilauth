@@ -7,7 +7,6 @@ private_key:
 # Prometheus metrics endpoint configuration.
 metrics:
   bind_endpoint: 127.0.0.1:30922
-  enabled: true  # default: true
 
 # OpenTelemetry configuration.
 #

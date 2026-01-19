@@ -86,10 +86,6 @@ impl PrivateKeyConfig {
 pub struct MetricsConfig {
     /// The address to bind the Prometheus metrics endpoint to.
     pub bind_endpoint: SocketAddr,
-
-    /// Whether the Prometheus metrics endpoint is enabled.
-    #[serde(default = "default_true")]
-    pub enabled: bool,
 }
 
 /// OpenTelemetry configuration.
