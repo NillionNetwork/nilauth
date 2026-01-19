@@ -1,6 +1,7 @@
-use crate::{config::BlindModuleCosts, db::subscriptions::BlindModule, services::token_price::TokenPriceService};
+use crate::{
+    config::BlindModuleCosts, db::subscriptions::BlindModule, metrics, services::token_price::TokenPriceService,
+};
 use async_trait::async_trait;
-use metrics::counter;
 use rust_decimal::Decimal;
 use std::sync::Arc;
 use tracing::error;
@@ -33,7 +34,7 @@ impl SubscriptionCostService for DefaultSubscriptionCostService {
     async fn blind_module_cost(&self, blind_module: BlindModule) -> Result<u64, SubscriptionCostError> {
         let token_price = self.token_price_service.nil_token_price().await.map_err(|e| {
             error!("Failed to get token price: {e}");
-            counter!("nil_token_price_fetch_errors_total").increment(1);
+            metrics::record_token_price_fetch_error();
             SubscriptionCostError
         })?;
         let dollar_cost = match blind_module {

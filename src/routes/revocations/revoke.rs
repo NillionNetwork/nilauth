@@ -6,7 +6,6 @@ use crate::{
 };
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use metrics::counter;
 use nillion_nucs::{
     envelope::{InvalidSignature, NucEnvelopeParseError, NucTokenEnvelope},
     token::{Command, TokenBody},
@@ -14,6 +13,8 @@ use nillion_nucs::{
 use std::{iter, sync::LazyLock};
 use strum::EnumDiscriminants;
 use tracing::info;
+
+use crate::metrics;
 
 const TOKEN_ARG: &str = "token";
 static REVOCATION_CMD: LazyLock<Command> = LazyLock::new(|| ["nuc", "revoke"].into());
@@ -65,7 +66,7 @@ pub(crate) async fn handler(state: SharedState, auth: CapabilityNuc) -> Result<J
     match result {
         Ok(_) => {
             info!("Revoked token {hash}, expires at {expires_at}");
-            counter!("revoked_tokens_total").increment(1);
+            metrics::record_token_revoked();
             Ok(Json(()))
         }
         Err(StoreRevocationError::AlreadyRevoked) => {

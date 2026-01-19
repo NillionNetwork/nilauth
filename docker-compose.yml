@@ -24,3 +24,38 @@ services:
       - "30923:80"
     command: |
       caddy respond --listen :80 --body '{"nillion":{"usd":1.0}}' --header "Content-Type: application/json"
+
+  otel-collector:
+    image: otel/opentelemetry-collector:latest
+    command: ["--config=env:OTEL_CONFIG"]
+    environment:
+      OTEL_CONFIG: |
+        receivers:
+          otlp:
+            protocols:
+              grpc:
+                endpoint: 0.0.0.0:4317
+        processors:
+          batch:
+        exporters:
+          debug:
+            verbosity: detailed
+        service:
+          telemetry:
+            logs:
+              level: info
+          pipelines:
+            logs:
+              receivers: [otlp]
+              processors: [batch]
+              exporters: [debug]
+            traces:
+              receivers: [otlp]
+              processors: [batch]
+              exporters: [debug]
+            metrics:
+              receivers: [otlp]
+              processors: [batch]
+              exporters: [debug]
+    ports:
+      - "4317:4317"

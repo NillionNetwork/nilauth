@@ -2,7 +2,7 @@ use anyhow::Context;
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use serde_with::serde_as;
-use std::{fs, net::SocketAddr, path::PathBuf, time::Duration};
+use std::{collections::HashMap, fs, net::SocketAddr, path::PathBuf, time::Duration};
 
 /// The configuration for the authority service.
 #[derive(Clone, Deserialize)]
@@ -13,8 +13,12 @@ pub struct Config {
     /// The private key
     pub private_key: PrivateKeyConfig,
 
-    /// Configuration for metrics.
+    /// Configuration for Prometheus metrics endpoint.
     pub metrics: MetricsConfig,
+
+    /// OpenTelemetry configuration.
+    #[serde(default)]
+    pub otel: OtelConfig,
 
     /// The payments configuration.
     pub payments: PaymentsConfig,
@@ -77,11 +81,139 @@ impl PrivateKeyConfig {
     }
 }
 
-/// The configuration for metrics.
+/// The configuration for Prometheus metrics endpoint.
 #[derive(Clone, Deserialize)]
 pub struct MetricsConfig {
-    /// The address to bind to.
+    /// The address to bind the Prometheus metrics endpoint to.
     pub bind_endpoint: SocketAddr,
+}
+
+/// OpenTelemetry configuration.
+///
+/// Resource attributes like `team.name` and `deployment.environment.name` can be set
+/// via the standard `OTEL_RESOURCE_ATTRIBUTES` environment variable:
+/// ```bash
+/// OTEL_RESOURCE_ATTRIBUTES=team.name=myteam,deployment.environment.name=production
+/// ```
+#[serde_as]
+#[derive(Clone, Deserialize)]
+pub struct OtelConfig {
+    /// Whether OpenTelemetry is enabled.
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// The global OTLP gRPC endpoint URL (e.g., "http://localhost:4317").
+    /// Can be overridden per-signal (e.g., `logs.endpoint`) or via
+    /// `OTEL_EXPORTER_OTLP_ENDPOINT` environment variable.
+    #[serde(default = "default_otlp_endpoint")]
+    pub endpoint: String,
+
+    /// The service name for OTEL resource attributes.
+    /// Can also be set via `OTEL_SERVICE_NAME` environment variable.
+    #[serde(default = "default_service_name")]
+    pub service_name: String,
+
+    /// Additional resource attributes as key-value pairs.
+    /// These are merged with attributes from `OTEL_RESOURCE_ATTRIBUTES`.
+    #[serde(default)]
+    pub resource_attributes: HashMap<String, String>,
+
+    /// The batch export timeout.
+    #[serde_as(as = "serde_with::DurationSeconds<u64>")]
+    #[serde(default = "default_export_timeout")]
+    pub export_timeout: Duration,
+
+    /// Log export configuration.
+    #[serde(default)]
+    pub logs: OtelLogsConfig,
+
+    /// Trace export configuration.
+    #[serde(default)]
+    pub traces: OtelTracesConfig,
+
+    /// Metrics export configuration.
+    #[serde(default)]
+    pub metrics: OtelMetricsConfig,
+}
+
+impl Default for OtelConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            endpoint: default_otlp_endpoint(),
+            service_name: default_service_name(),
+            resource_attributes: HashMap::new(),
+            export_timeout: default_export_timeout(),
+            logs: OtelLogsConfig::default(),
+            traces: OtelTracesConfig::default(),
+            metrics: OtelMetricsConfig::default(),
+        }
+    }
+}
+
+/// OpenTelemetry logs export configuration.
+#[derive(Clone, Deserialize)]
+pub struct OtelLogsConfig {
+    /// Whether log export is enabled.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Optional endpoint override for log export.
+    /// If not set, uses the global `otel.endpoint`.
+    #[serde(default)]
+    pub endpoint: Option<String>,
+}
+
+impl Default for OtelLogsConfig {
+    fn default() -> Self {
+        Self { enabled: true, endpoint: None }
+    }
+}
+
+/// OpenTelemetry traces export configuration.
+#[derive(Clone, Deserialize)]
+pub struct OtelTracesConfig {
+    /// Whether trace export is enabled.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Optional endpoint override for trace export.
+    /// If not set, uses the global `otel.endpoint`.
+    #[serde(default)]
+    pub endpoint: Option<String>,
+}
+
+impl Default for OtelTracesConfig {
+    fn default() -> Self {
+        Self { enabled: true, endpoint: None }
+    }
+}
+
+/// OpenTelemetry metrics export configuration.
+#[serde_as]
+#[derive(Clone, Deserialize)]
+pub struct OtelMetricsConfig {
+    /// Whether metrics export is enabled
+    /// When enabled, OTEL metrics are used instead of Prometheus metrics.
+    /// Set to `false` to keep using Prometheus metrics while still using OTEL for logs/traces.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Optional endpoint override for metrics export.
+    /// If not set, uses the global `otel.endpoint`.
+    #[serde(default)]
+    pub endpoint: Option<String>,
+
+    /// The interval at which metrics are exported.
+    #[serde_as(as = "serde_with::DurationSeconds<u64>")]
+    #[serde(default = "default_metrics_export_interval")]
+    pub export_interval: Duration,
+}
+
+impl Default for OtelMetricsConfig {
+    fn default() -> Self {
+        Self { enabled: true, endpoint: None, export_interval: default_metrics_export_interval() }
+    }
 }
 
 /// The payments configuration.
@@ -181,4 +313,72 @@ fn default_token_price_timeout() -> Duration {
 fn default_slippage() -> Decimal {
     // 3%
     Decimal::new(3, 2)
+}
+
+fn default_otlp_endpoint() -> String {
+    "http://localhost:4317".into()
+}
+
+fn default_service_name() -> String {
+    "nilauth".into()
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_export_timeout() -> Duration {
+    Duration::from_secs(30)
+}
+
+fn default_metrics_export_interval() -> Duration {
+    Duration::from_secs(15)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn otel_config_defaults() {
+        // Verify OtelConfig::default() matches serde defaults
+        let config = OtelConfig::default();
+
+        assert!(!config.enabled);
+        assert_eq!(config.endpoint, "http://localhost:4317");
+        assert_eq!(config.service_name, "nilauth");
+        assert!(config.resource_attributes.is_empty());
+        assert_eq!(config.export_timeout, Duration::from_secs(30));
+
+        // Sub-configs default to enabled with no endpoint override
+        assert!(config.logs.enabled);
+        assert!(config.logs.endpoint.is_none());
+        assert!(config.traces.enabled);
+        assert!(config.traces.endpoint.is_none());
+        assert!(config.metrics.enabled);
+        assert!(config.metrics.endpoint.is_none());
+        assert_eq!(config.metrics.export_interval, Duration::from_secs(15));
+    }
+
+    #[test]
+    fn otel_endpoint_resolution() {
+        let config = OtelConfig {
+            enabled: true,
+            endpoint: "http://global:4317".to_string(),
+            service_name: "test".to_string(),
+            resource_attributes: HashMap::new(),
+            export_timeout: Duration::from_secs(30),
+            logs: OtelLogsConfig { enabled: true, endpoint: None },
+            traces: OtelTracesConfig { enabled: true, endpoint: Some("http://traces-override:4317".to_string()) },
+            metrics: OtelMetricsConfig::default(),
+        };
+
+        // Falls back to global when no override
+        let logs_endpoint = config.logs.endpoint.as_ref().unwrap_or(&config.endpoint);
+        assert_eq!(logs_endpoint, "http://global:4317");
+
+        // Uses override when set
+        let traces_endpoint = config.traces.endpoint.as_ref().unwrap_or(&config.endpoint);
+        assert_eq!(traces_endpoint, "http://traces-override:4317");
+    }
 }

@@ -1,5 +1,4 @@
-use crate::{db::revocations::RevocationDb, time::TimeService};
-use metrics::counter;
+use crate::{db::revocations::RevocationDb, metrics, time::TimeService};
 use std::{sync::Arc, time::Duration};
 use tokio::time::sleep;
 use tracing::{error, info};
@@ -38,7 +37,7 @@ impl RevokedTokenCleaner {
         let expired_count = self.db.delete_expired(cleanup_threshold).await?;
         info!("Deleted {expired_count} expired revoked tokens");
 
-        counter!("expired_revoked_tokens_removed_total").increment(expired_count);
+        metrics::record_expired_tokens_removed(expired_count);
         Ok(())
     }
 }

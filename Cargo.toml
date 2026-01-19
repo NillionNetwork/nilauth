@@ -28,6 +28,12 @@ sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "chrono"] }
 thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt"] }
+opentelemetry = { version = "0.31", default-features = false, features = ["logs", "trace", "metrics"] }
+opentelemetry_sdk = { version = "0.31", default-features = false, features = ["rt-tokio", "logs", "trace", "metrics"] }
+opentelemetry-otlp = { version = "0.31", default-features = false, features = ["grpc-tonic", "logs", "trace", "metrics"] }
+opentelemetry-appender-tracing = "0.31"
+opentelemetry-resource-detectors = "0.10"
+tracing-opentelemetry = "0.32"
 tokio = { version = "1.44", features = ["rt-multi-thread", "macros", "time", "signal"] }
 tower-http = { version = "0.6", features = ["cors"] }
 utoipa = { version = "5.3.1", features = ["chrono", "axum_extras"] }

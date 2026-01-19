@@ -6,6 +6,10 @@
 pub mod args;
 /// Service configuration structure and loading logic.
 pub mod config;
+/// Unified metrics module for Prometheus and OTEL.
+pub mod metrics;
+/// Observability initialization (logging, metrics, tracing).
+pub mod observability;
 /// The main application entry point and server setup logic.
 pub mod run;
 
@@ -13,7 +17,7 @@ mod auth;
 mod cleanup;
 mod db;
 mod docs;
-mod metrics;
+mod process_metrics;
 mod routes;
 mod services;
 mod signed;

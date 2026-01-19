@@ -2,7 +2,8 @@ use crate::cleanup::RevokedTokenCleaner;
 use crate::config::Config;
 use crate::db::revocations::PostgresRevocationDb;
 use crate::db::{PostgresPool, subscriptions::PostgresSubscriptionDb};
-use crate::metrics::ProcessMetricsCollector;
+use crate::observability::ObservabilityGuard;
+use crate::process_metrics::{OtelProcessMetricsCollector, ProcessMetricsCollector};
 use crate::services::ethereum_rpc::AlloyBurnWithDigestEventRetriever;
 use crate::services::subscription_cost::DefaultSubscriptionCostService;
 use crate::services::token_price::CoinGeckoTokenPriceService;
@@ -11,7 +12,6 @@ use crate::time::DefaultTimeService;
 use anyhow::Context;
 use axum::http;
 use axum::{Router, routing::get};
-use axum_prometheus::{EndpointLabel, PrometheusMetricLayerBuilder, metrics_exporter_prometheus::PrometheusBuilder};
 use chrono::Utc;
 use nillion_nucs::did::Did;
 use nillion_nucs::{DidMethod, Signer};
@@ -27,7 +27,7 @@ use tracing::info;
 /// This function sets up the database connection, services, application state,
 /// and starts the main application and metrics servers. It also handles
 /// graceful shutdown on receiving a termination signal.
-pub async fn run(config: Config) -> anyhow::Result<()> {
+pub async fn run(config: Config, observability_guard: &ObservabilityGuard) -> anyhow::Result<()> {
     info!("Starting nilauth service");
     info!(
         server_endpoint = %config.server.bind_endpoint,
@@ -94,29 +94,54 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     // Spawn a helper to clean up expired tokens
     RevokedTokenCleaner::spawn(state.databases.revocations.clone(), Box::new(DefaultTimeService));
 
-    // Create a custom prometheus layer that ignores unknown paths and returns `/unknown` instead so
-    // crawlers/malicious actors can't create high cardinality metrics by hitting unknown routes.
-    let (prometheus_layer, metrics_handle) = PrometheusMetricLayerBuilder::new()
-        .with_prefix("app")
-        .with_endpoint_label_type(EndpointLabel::MatchedPathWithFallbackFn(|_| "/unknown".into()))
-        .with_metrics_from_fn(|| {
-            PrometheusBuilder::new().install_recorder().expect("failed to install metrics recorder")
-        })
-        .build_pair();
     let cors = CorsLayer::new()
         .allow_methods([http::Method::GET, http::Method::POST])
         .allow_headers([http::header::CONTENT_TYPE, http::header::AUTHORIZATION])
         .allow_origin(tower_http::cors::Any);
-    let router = crate::routes::build_router(state).layer(prometheus_layer).layer(cors);
-    let metrics_router = Router::new().route("/metrics", get(|| async move { metrics_handle.render() }));
 
-    ProcessMetricsCollector::spawn();
+    // Check if OTEL metrics are enabled (mutually exclusive with Prometheus)
+    // Use the guard's method which accounts for runtime conditions like OTEL_SDK_DISABLED
+    if observability_guard.otel_metrics_enabled() {
+        info!("Exporting OTEL metrics.");
 
-    let app = serve(config.server.bind_endpoint, router, "main");
-    let metrics = serve(config.metrics.bind_endpoint, metrics_router, "metrics");
-    let (app, metrics) = join!(app, metrics);
-    app.context("running main server")?;
-    metrics.context("running metrics server")?;
+        let router = crate::routes::build_router(state).layer(cors);
+
+        // Spawn OTEL process metrics collector
+        OtelProcessMetricsCollector::spawn();
+
+        let app = serve(config.server.bind_endpoint, router, "main");
+        app.await.context("running main server")?;
+    } else {
+        // Prometheus metrics mode (default)
+        use axum_prometheus::{
+            EndpointLabel, PrometheusMetricLayerBuilder, metrics_exporter_prometheus::PrometheusBuilder,
+        };
+
+        info!("Exporting Prometheus metrics");
+
+        // Create a custom prometheus layer that ignores unknown paths and returns `/unknown` instead so
+        // crawlers/malicious actors can't create high cardinality metrics by hitting unknown routes.
+        let (prometheus_layer, metrics_handle) = PrometheusMetricLayerBuilder::new()
+            .with_prefix("app")
+            .with_endpoint_label_type(EndpointLabel::MatchedPathWithFallbackFn(|_| "/unknown".into()))
+            .with_metrics_from_fn(|| {
+                PrometheusBuilder::new().install_recorder().expect("failed to install metrics recorder")
+            })
+            .build_pair();
+
+        let router = crate::routes::build_router(state).layer(prometheus_layer).layer(cors);
+        let metrics_router = Router::new().route("/metrics", get(|| async move { metrics_handle.render() }));
+
+        // Spawn Prometheus process metrics collector
+        ProcessMetricsCollector::spawn();
+
+        let app = serve(config.server.bind_endpoint, router, "main");
+        let metrics = serve(config.metrics.bind_endpoint, metrics_router, "metrics");
+        let (app, metrics) = join!(app, metrics);
+        app.context("running main server")?;
+        metrics.context("running metrics server")?;
+    }
+
     Ok(())
 }
 

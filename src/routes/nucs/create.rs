@@ -9,13 +9,14 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use chrono::{DateTime, Utc};
-use metrics::counter;
 use nillion_nucs::NucSigner;
 use nillion_nucs::token::Command;
 use nillion_nucs::{builder::DelegationBuilder, did::Did};
 use serde::{Deserialize, Serialize};
 use strum::EnumDiscriminants;
 use tracing::{error, info};
+
+use crate::metrics;
 use utoipa::ToSchema;
 
 /// The legacy payload format for creating a Nuc, used for `did:nil` authentication.
@@ -160,7 +161,7 @@ async fn handle_nuc_creation(
             HandlerError::Internal
         })?;
 
-    counter!("nucs_minted_total", "module" => blind_module.to_string()).increment(1);
+    metrics::record_nuc_minted(&blind_module.to_string());
     let response = CreateNucResponse { token };
     Ok(Json(response))
 }
