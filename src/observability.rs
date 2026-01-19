@@ -133,23 +133,51 @@ fn init_fmt_logging() -> anyhow::Result<ObservabilityGuard> {
 }
 
 /// Initializes OpenTelemetry with OTLP export for logs, traces, and metrics.
+///
+/// Gracefully degrades on exporter errors: if a provider fails to initialize,
+/// logs a warning and continues with partial observability rather than failing completely.
 fn init_otel(config: &OtelConfig) -> anyhow::Result<ObservabilityGuard> {
     let resource = create_resource(config);
 
-    // Initialize tracer provider if traces are enabled
-    let tracer_provider =
-        if config.traces.enabled { Some(init_tracer_provider(config, resource.clone())?) } else { None };
+    // Initialize tracer provider if traces are enabled (graceful degradation on error)
+    let tracer_provider = if config.traces.enabled {
+        match init_tracer_provider(config, resource.clone()) {
+            Ok(provider) => Some(provider),
+            Err(e) => {
+                eprintln!("Warning: Failed to initialize tracer provider: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
 
-    // Initialize logger provider if logs are enabled
-    let logger_provider =
-        if config.logs.enabled { Some(init_logger_provider(config, resource.clone())?) } else { None };
+    // Initialize logger provider if logs are enabled (graceful degradation on error)
+    let logger_provider = if config.logs.enabled {
+        match init_logger_provider(config, resource.clone()) {
+            Ok(provider) => Some(provider),
+            Err(e) => {
+                eprintln!("Warning: Failed to initialize logger provider: {e}");
+                None
+            }
+        }
+    } else {
+        None
+    };
 
-    // Initialize meter provider if metrics are enabled
+    // Initialize meter provider if metrics are enabled (graceful degradation on error)
     let meter_provider = if config.metrics.enabled {
-        let provider = init_meter_provider(config, resource)?;
-        // Set the global meter provider so metrics can be recorded from anywhere
-        global::set_meter_provider(provider.clone());
-        Some(provider)
+        match init_meter_provider(config, resource) {
+            Ok(provider) => {
+                // Set the global meter provider so metrics can be recorded from anywhere
+                global::set_meter_provider(provider.clone());
+                Some(provider)
+            }
+            Err(e) => {
+                eprintln!("Warning: Failed to initialize meter provider: {e}");
+                None
+            }
+        }
     } else {
         None
     };
