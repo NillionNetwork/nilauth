@@ -76,8 +76,6 @@ impl Drop for ObservabilityGuard {
 /// - `OTEL_SERVICE_NAME`: Service name (overrides config)
 /// - `OTEL_RESOURCE_ATTRIBUTES`: Additional resource attributes (e.g., "team.name=myteam,deployment.environment.name=prod")
 pub fn init(config: &Config) -> anyhow::Result<ObservabilityGuard> {
-    let otel_enabled = config.otel.enabled && !is_otel_sdk_disabled();
-
     // Check if OTEL is disabled via environment variable
     if config.otel.enabled && is_otel_sdk_disabled() {
         let guard = init_fmt_logging()?;
@@ -85,7 +83,7 @@ pub fn init(config: &Config) -> anyhow::Result<ObservabilityGuard> {
         return Ok(guard);
     }
 
-    if otel_enabled {
+    if config.otel.enabled {
         let otel_config = apply_otel_env_overrides(&config.otel);
         init_otel(&otel_config)
     } else {
