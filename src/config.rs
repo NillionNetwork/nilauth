@@ -96,7 +96,7 @@ pub struct MetricsConfig {
 /// OTEL_RESOURCE_ATTRIBUTES=team.name=myteam,deployment.environment.name=production
 /// ```
 #[serde_as]
-#[derive(Clone, Default, Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct OtelConfig {
     /// Whether OpenTelemetry is enabled.
     #[serde(default)]
@@ -134,6 +134,21 @@ pub struct OtelConfig {
     /// Metrics export configuration.
     #[serde(default)]
     pub metrics: OtelMetricsConfig,
+}
+
+impl Default for OtelConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            endpoint: default_otlp_endpoint(),
+            service_name: default_service_name(),
+            resource_attributes: HashMap::new(),
+            export_timeout: default_export_timeout(),
+            logs: OtelLogsConfig::default(),
+            traces: OtelTracesConfig::default(),
+            metrics: OtelMetricsConfig::default(),
+        }
+    }
 }
 
 /// OpenTelemetry logs export configuration.
