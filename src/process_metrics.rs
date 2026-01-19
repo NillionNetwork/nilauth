@@ -34,7 +34,7 @@ mod otel_collector {
 #[cfg(target_os = "linux")]
 mod collector {
     use metrics::{counter, gauge};
-    use procfs::{WithCurrentSystemInfo, net::TcpState, process::Process};
+    use procfs::{net::TcpState, process::Process, WithCurrentSystemInfo};
     use std::{sync::LazyLock, time::Duration};
     use tokio::time::sleep;
     use tracing::warn;
@@ -108,13 +108,29 @@ mod collector {
 #[cfg(target_os = "linux")]
 mod otel_collector {
     use crate::metrics;
-    use procfs::{WithCurrentSystemInfo, net::TcpState, process::Process};
-    use std::{sync::LazyLock, time::Duration};
+    use procfs::{net::TcpState, process::Process, WithCurrentSystemInfo};
+    use std::{
+        sync::{LazyLock, Mutex},
+        time::Duration,
+    };
     use tokio::time::sleep;
     use tracing::warn;
 
     static TICKS_PER_SECOND: LazyLock<f64> = LazyLock::new(|| procfs::ticks_per_second() as f64);
     const COLLECT_INTERVAL: Duration = Duration::from_secs(30);
+
+    /// Tracks previous values for cumulative metrics to compute deltas.
+    /// OTEL counters use `add()` which increments, so we must track deltas ourselves.
+    #[derive(Default)]
+    struct PreviousValues {
+        cpu_ticks: u64,
+        disk_read_bytes: u64,
+        disk_write_bytes: u64,
+        disk_read_syscalls: u64,
+        disk_write_syscalls: u64,
+    }
+
+    static PREVIOUS: LazyLock<Mutex<PreviousValues>> = LazyLock::new(|| Mutex::new(PreviousValues::default()));
 
     /// OTEL process metrics collector using OpenTelemetry semantic conventions.
     pub struct OtelProcessMetricsCollector;
@@ -131,45 +147,64 @@ mod otel_collector {
         }
 
         fn collect_metrics() {
-            let metrics = match Process::myself() {
-                Ok(metrics) => metrics,
+            let process = match Process::myself() {
+                Ok(p) => p,
                 Err(e) => {
                     warn!("Failed to load procfs entry: {e}");
                     return;
                 }
             };
-            let stat = match metrics.stat() {
+            let stat = match process.stat() {
                 Ok(stat) => stat,
                 Err(e) => {
                     warn!("Failed to load procfs stat: {e}");
                     return;
                 }
             };
+
+            let mut prev = PREVIOUS.lock().unwrap();
             let tick_rate = *TICKS_PER_SECOND;
+
+            // CPU time - compute delta from previous reading
             match stat.utime.checked_add(stat.stime) {
                 Some(total_ticks) => {
-                    // Convert ticks to seconds for OTEL semantic conventions
-                    let total_seconds = total_ticks as f64 / tick_rate;
-                    metrics::record_process_cpu_time(total_seconds);
+                    let delta_ticks = total_ticks.saturating_sub(prev.cpu_ticks);
+                    prev.cpu_ticks = total_ticks;
+                    let delta_seconds = delta_ticks as f64 / tick_rate;
+                    metrics::record_process_cpu_time(delta_seconds);
                 }
                 None => warn!("CPU time calculation overflowed"),
             };
+
+            // Gauges - these are point-in-time values, no delta needed
             let rss = stat.rss_bytes().get() as f64;
             metrics::record_process_memory_usage(rss);
 
-            if let Some(count) = metrics.fd_count().ok().and_then(|c| i64::try_from(c).ok()) {
+            if let Some(count) = process.fd_count().ok().and_then(|c| i64::try_from(c).ok()) {
                 metrics::record_process_open_fd_count(count);
             }
             metrics::record_process_thread_count(stat.num_threads as i64);
 
-            if let Ok(io) = metrics.io() {
-                metrics::record_process_disk_io(io.read_bytes, "read");
-                metrics::record_process_disk_io(io.write_bytes, "write");
-                metrics::record_process_disk_syscalls(io.syscr, "read");
-                metrics::record_process_disk_syscalls(io.syscw, "write");
+            // Disk I/O - compute deltas from previous reading
+            if let Ok(io) = process.io() {
+                let delta_read_bytes = io.read_bytes.saturating_sub(prev.disk_read_bytes);
+                let delta_write_bytes = io.write_bytes.saturating_sub(prev.disk_write_bytes);
+                let delta_read_syscalls = io.syscr.saturating_sub(prev.disk_read_syscalls);
+                let delta_write_syscalls = io.syscw.saturating_sub(prev.disk_write_syscalls);
+
+                prev.disk_read_bytes = io.read_bytes;
+                prev.disk_write_bytes = io.write_bytes;
+                prev.disk_read_syscalls = io.syscr;
+                prev.disk_write_syscalls = io.syscw;
+
+                metrics::record_process_disk_io(delta_read_bytes, "read");
+                metrics::record_process_disk_io(delta_write_bytes, "write");
+                metrics::record_process_disk_syscalls(delta_read_syscalls, "read");
+                metrics::record_process_disk_syscalls(delta_write_syscalls, "write");
             }
 
-            if let Ok(net) = metrics.tcp() {
+            // TCP connections - gauge, no delta needed
+            if let Ok(net) = process.tcp() {
                 let established_count =
                     net.iter().filter(|connection| connection.state == TcpState::Established).count() as i64;
                 metrics::record_network_connections(established_count);
