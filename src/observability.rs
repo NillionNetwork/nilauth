@@ -313,3 +313,51 @@ fn build_metric_exporter(config: &OtelConfig) -> anyhow::Result<MetricExporter> 
 
     Ok(exporter)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serial_test::serial;
+
+    #[test]
+    #[serial]
+    fn otel_sdk_disabled_env_var() {
+        // SAFETY: Test-only, running serially
+        unsafe { env::remove_var("OTEL_SDK_DISABLED") };
+        assert!(!is_otel_sdk_disabled(), "should be enabled when unset");
+
+        unsafe { env::set_var("OTEL_SDK_DISABLED", "true") };
+        assert!(is_otel_sdk_disabled(), "should be disabled for 'true'");
+
+        unsafe { env::set_var("OTEL_SDK_DISABLED", "1") };
+        assert!(is_otel_sdk_disabled(), "should be disabled for '1'");
+
+        unsafe { env::set_var("OTEL_SDK_DISABLED", "false") };
+        assert!(!is_otel_sdk_disabled(), "should be enabled for 'false'");
+
+        unsafe { env::remove_var("OTEL_SDK_DISABLED") };
+    }
+
+    #[test]
+    fn create_resource_with_attributes() {
+        let mut config = OtelConfig::default();
+        config.service_name = "test-service".to_string();
+        config.resource_attributes.insert("team.name".to_string(), "platform".to_string());
+
+        let resource = create_resource(&config);
+
+        let get_attr = |name: &str| resource.iter().find(|(k, _)| k.as_str() == name).map(|(_, v)| v.to_string());
+
+        assert_eq!(get_attr("service.name"), Some("test-service".to_string()));
+        assert_eq!(get_attr("service.version"), Some(env!("CARGO_PKG_VERSION").to_string()));
+        assert_eq!(get_attr("team.name"), Some("platform".to_string()));
+    }
+
+    #[test]
+    fn observability_guard_safe_with_no_providers() {
+        let guard = ObservabilityGuard { logger_provider: None, tracer_provider: None, meter_provider: None };
+
+        assert!(!guard.otel_metrics_enabled());
+        guard.shutdown(); // Should not panic
+    }
+}
