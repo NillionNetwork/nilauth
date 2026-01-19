@@ -334,3 +334,51 @@ fn default_export_timeout() -> Duration {
 fn default_metrics_export_interval() -> Duration {
     Duration::from_secs(15)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn otel_config_defaults() {
+        // Verify OtelConfig::default() matches serde defaults
+        let config = OtelConfig::default();
+
+        assert!(!config.enabled);
+        assert_eq!(config.endpoint, "http://localhost:4317");
+        assert_eq!(config.service_name, "nilauth");
+        assert!(config.resource_attributes.is_empty());
+        assert_eq!(config.export_timeout, Duration::from_secs(30));
+
+        // Sub-configs default to enabled with no endpoint override
+        assert!(config.logs.enabled);
+        assert!(config.logs.endpoint.is_none());
+        assert!(config.traces.enabled);
+        assert!(config.traces.endpoint.is_none());
+        assert!(config.metrics.enabled);
+        assert!(config.metrics.endpoint.is_none());
+        assert_eq!(config.metrics.export_interval, Duration::from_secs(15));
+    }
+
+    #[test]
+    fn otel_endpoint_resolution() {
+        let config = OtelConfig {
+            enabled: true,
+            endpoint: "http://global:4317".to_string(),
+            service_name: "test".to_string(),
+            resource_attributes: HashMap::new(),
+            export_timeout: Duration::from_secs(30),
+            logs: OtelLogsConfig { enabled: true, endpoint: None },
+            traces: OtelTracesConfig { enabled: true, endpoint: Some("http://traces-override:4317".to_string()) },
+            metrics: OtelMetricsConfig::default(),
+        };
+
+        // Falls back to global when no override
+        let logs_endpoint = config.logs.endpoint.as_ref().unwrap_or(&config.endpoint);
+        assert_eq!(logs_endpoint, "http://global:4317");
+
+        // Uses override when set
+        let traces_endpoint = config.traces.endpoint.as_ref().unwrap_or(&config.endpoint);
+        assert_eq!(traces_endpoint, "http://traces-override:4317");
+    }
+}
