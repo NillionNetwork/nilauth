@@ -92,7 +92,7 @@ pub struct MetricsConfig {
 ///
 /// Resource attributes like `team.name` and `deployment.environment.name` can be set
 /// via the standard `OTEL_RESOURCE_ATTRIBUTES` environment variable:
-/// ```
+/// ```bash
 /// OTEL_RESOURCE_ATTRIBUTES=team.name=myteam,deployment.environment.name=production
 /// ```
 #[serde_as]
