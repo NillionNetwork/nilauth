@@ -16,7 +16,7 @@ use opentelemetry_sdk::{
     metrics::{PeriodicReader, SdkMeterProvider},
     trace::SdkTracerProvider,
 };
-use tracing::info;
+use tracing::{error, info};
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 /// A guard that manages the lifecycle of observability resources.
@@ -40,21 +40,24 @@ impl ObservabilityGuard {
     }
 
     /// Internal helper to shut down all providers.
+    ///
+    /// Uses tracing::error! for consistency. The fmt layer remains active even
+    /// after OTEL providers are shut down, so errors will still be logged.
     fn shutdown_providers(&mut self) {
         if let Some(provider) = self.meter_provider.take()
             && let Err(e) = provider.shutdown()
         {
-            eprintln!("Error shutting down meter provider: {e}");
+            error!("Error shutting down meter provider: {e}");
         }
         if let Some(provider) = self.tracer_provider.take()
             && let Err(e) = provider.shutdown()
         {
-            eprintln!("Error shutting down tracer provider: {e}");
+            error!("Error shutting down tracer provider: {e}");
         }
         if let Some(provider) = self.logger_provider.take()
             && let Err(e) = provider.shutdown()
         {
-            eprintln!("Error shutting down logger provider: {e}");
+            error!("Error shutting down logger provider: {e}");
         }
     }
 }
