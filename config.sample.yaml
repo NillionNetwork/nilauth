@@ -35,7 +35,7 @@ metrics:
 #   metrics:
 #     enabled: false  # default: false - when enabled, disables Prometheus metrics
 #     endpoint: "http://localhost:4317"  # optional, overrides global endpoint
-#     export_interval: 60  # seconds between metric exports (default: 60)
+#     export_interval: 15  # seconds between metric exports (default: 15)
 
 payments:
   # Ethereum RPC endpoint (Anvil for local development)

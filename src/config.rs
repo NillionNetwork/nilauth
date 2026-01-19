@@ -316,5 +316,5 @@ fn default_export_timeout() -> Duration {
 }
 
 fn default_metrics_export_interval() -> Duration {
-    Duration::from_secs(60)
+    Duration::from_secs(15)
 }
