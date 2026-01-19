@@ -245,6 +245,10 @@ fn build_log_exporter(config: &OtelConfig) -> anyhow::Result<LogExporter> {
 }
 
 /// Initializes the OTEL meter provider with OTLP export.
+///
+/// NOTE: The export timeout is configured on the `MetricExporter` itself (in `build_metric_exporter`),
+/// not on the `PeriodicReader`. The reader's interval controls how often metrics are collected and
+/// exported, while the exporter's timeout controls the network operation timeout.
 fn init_meter_provider(config: &OtelConfig, resource: Resource) -> anyhow::Result<SdkMeterProvider> {
     let exporter = build_metric_exporter(config)?;
     let reader = PeriodicReader::builder(exporter).with_interval(config.metrics.export_interval).build();

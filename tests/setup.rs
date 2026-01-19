@@ -1,4 +1,4 @@
-use ::nilauth::{config::Config, run::run};
+use ::nilauth::{config::Config, observability, run::run};
 use axum::Router;
 use axum::http::StatusCode;
 use axum::routing::get;
@@ -145,7 +145,9 @@ impl Services {
             config: config.clone(),
         };
         let handle = RUNTIME.spawn(async move {
-            match run(config).await {
+            // Initialize observability for tests (OTEL disabled in sample config)
+            let guard = observability::init(&config).expect("failed to initialize observability");
+            match run(config, &guard).await {
                 Ok(_) => info!("nilauth finished successfully"),
                 Err(e) => error!("nilauth finished with error: {e}"),
             };
