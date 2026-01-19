@@ -281,9 +281,18 @@ pub fn record_token_price_fetch_duration(seconds: f64) {
 
 // =============================================================================
 // Unified Recording Functions - Process Metrics
+//
+// NOTE: Process metrics are OTEL-only. Unlike application metrics above which
+// dual-write to both backends, process metrics use separate collectors:
+// - Prometheus: Uses `ProcessMetricsCollector` with `counter!().absolute()` semantics
+// - OTEL: Uses `OtelProcessMetricsCollector` with delta computation via these functions
+//
+// This separation exists because Prometheus counters support `.absolute()` for
+// cumulative values, while OTEL counters only support `.add()` requiring delta
+// computation. The collectors in `process_metrics.rs` handle this difference.
 // =============================================================================
 
-/// Records process CPU time in seconds.
+/// Records process CPU time in seconds (OTEL only).
 pub fn record_process_cpu_time(seconds: f64) {
     OTEL_PROCESS_CPU_TIME.add(seconds, &[]);
 }
