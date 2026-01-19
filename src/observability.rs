@@ -36,6 +36,11 @@ impl ObservabilityGuard {
 
     /// Shuts down the observability providers, flushing any pending data.
     pub fn shutdown(mut self) {
+        self.shutdown_providers();
+    }
+
+    /// Internal helper to shut down all providers.
+    fn shutdown_providers(&mut self) {
         if let Some(provider) = self.meter_provider.take()
             && let Err(e) = provider.shutdown()
         {
@@ -56,21 +61,7 @@ impl ObservabilityGuard {
 
 impl Drop for ObservabilityGuard {
     fn drop(&mut self) {
-        if let Some(provider) = self.meter_provider.take()
-            && let Err(e) = provider.shutdown()
-        {
-            eprintln!("Error shutting down meter provider: {e}");
-        }
-        if let Some(provider) = self.tracer_provider.take()
-            && let Err(e) = provider.shutdown()
-        {
-            eprintln!("Error shutting down tracer provider: {e}");
-        }
-        if let Some(provider) = self.logger_provider.take()
-            && let Err(e) = provider.shutdown()
-        {
-            eprintln!("Error shutting down logger provider: {e}");
-        }
+        self.shutdown_providers();
     }
 }
 
