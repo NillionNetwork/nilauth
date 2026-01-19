@@ -11,13 +11,12 @@ metrics:
 
 # OpenTelemetry configuration.
 #
-# All OTEL settings can be overridden via environment variables (env vars take precedence):
-#   OTEL_SDK_DISABLED=true       - Disable OTEL SDK, use only fmt logging
-#   OTEL_ENDPOINT                - Global OTLP gRPC endpoint URL (default: http://localhost:4317)
-#   OTEL_SERVICE_NAME            - Service name for telemetry (default: nilauth)
-#   OTEL_TEAM_NAME               - Team responsible for the service (default: nilauth)
-#   OTEL_DEPLOYMENT_ENV          - Deployment environment (default: local)
-#   OTEL_RESOURCE_ATTRIBUTES     - Additional resource attributes as key=value,key=value
+# Standard OTEL environment variables are supported:
+#   OTEL_SDK_DISABLED=true            - Disable OTEL SDK, use only fmt logging
+#   OTEL_EXPORTER_OTLP_ENDPOINT       - Global OTLP gRPC endpoint URL (default: http://localhost:4317)
+#   OTEL_SERVICE_NAME                 - Service name for telemetry (default: nilauth)
+#   OTEL_RESOURCE_ATTRIBUTES          - Resource attributes as key=value,key=value
+#                                       Example: team.name=myteam,deployment.environment.name=prod
 #
 # NOTE: Only gRPC transport (port 4317) is supported.
 #
@@ -25,8 +24,6 @@ metrics:
 #   enabled: true  # default: false
 #   endpoint: "http://localhost:4317"  # OTLP gRPC endpoint
 #   service_name: nilauth
-#   team_name: nilauth
-#   deployment_env: local
 #   resource_attributes:
 #     service.instance.id: nilauth-001
 #   export_timeout: 30

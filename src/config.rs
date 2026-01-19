@@ -93,6 +93,12 @@ pub struct MetricsConfig {
 }
 
 /// OpenTelemetry configuration.
+///
+/// Resource attributes like `team.name` and `deployment.environment.name` can be set
+/// via the standard `OTEL_RESOURCE_ATTRIBUTES` environment variable:
+/// ```
+/// OTEL_RESOURCE_ATTRIBUTES=team.name=myteam,deployment.environment.name=production
+/// ```
 #[serde_as]
 #[derive(Clone, Default, Deserialize)]
 pub struct OtelConfig {
@@ -101,23 +107,18 @@ pub struct OtelConfig {
     pub enabled: bool,
 
     /// The global OTLP gRPC endpoint URL (e.g., "http://localhost:4317").
-    /// Can be overridden per-signal (e.g., `logs.endpoint`).
+    /// Can be overridden per-signal (e.g., `logs.endpoint`) or via
+    /// `OTEL_EXPORTER_OTLP_ENDPOINT` environment variable.
     #[serde(default = "default_otlp_endpoint")]
     pub endpoint: String,
 
     /// The service name for OTEL resource attributes.
+    /// Can also be set via `OTEL_SERVICE_NAME` environment variable.
     #[serde(default = "default_service_name")]
     pub service_name: String,
 
-    /// The team responsible for the service.
-    #[serde(default = "default_team_name")]
-    pub team_name: String,
-
-    /// The deployment environment (e.g., "local", "staging", "production").
-    #[serde(default = "default_deployment_env")]
-    pub deployment_env: String,
-
     /// Additional resource attributes as key-value pairs.
+    /// These are merged with attributes from `OTEL_RESOURCE_ATTRIBUTES`.
     #[serde(default)]
     pub resource_attributes: HashMap<String, String>,
 
@@ -296,14 +297,6 @@ fn default_otlp_endpoint() -> String {
 
 fn default_service_name() -> String {
     "nilauth".into()
-}
-
-fn default_team_name() -> String {
-    "nilauth".into()
-}
-
-fn default_deployment_env() -> String {
-    "local".into()
 }
 
 fn default_true() -> bool {

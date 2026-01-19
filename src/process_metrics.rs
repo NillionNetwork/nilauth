@@ -34,7 +34,7 @@ mod otel_collector {
 #[cfg(target_os = "linux")]
 mod collector {
     use metrics::{counter, gauge};
-    use procfs::{net::TcpState, process::Process, WithCurrentSystemInfo};
+    use procfs::{WithCurrentSystemInfo, net::TcpState, process::Process};
     use std::{sync::LazyLock, time::Duration};
     use tokio::time::sleep;
     use tracing::warn;
@@ -108,7 +108,7 @@ mod collector {
 #[cfg(target_os = "linux")]
 mod otel_collector {
     use crate::metrics;
-    use procfs::{net::TcpState, process::Process, WithCurrentSystemInfo};
+    use procfs::{WithCurrentSystemInfo, net::TcpState, process::Process};
     use std::{
         sync::{LazyLock, Mutex},
         time::Duration,

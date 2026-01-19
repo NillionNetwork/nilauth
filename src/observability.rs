@@ -79,13 +79,11 @@ impl Drop for ObservabilityGuard {
 /// When `otel.enabled` is true, OTLP export is configured for enabled signals (logs, metrics, traces).
 /// Standard fmt logging is always enabled alongside OTEL.
 ///
-/// Environment variables take precedence over YAML configuration:
+/// Standard OTEL environment variables are supported:
 /// - `OTEL_SDK_DISABLED`: Set to "true" to disable OTEL and use only fmt logging
-/// - `OTEL_ENDPOINT`: OTLP endpoint URL
-/// - `OTEL_SERVICE_NAME`: Service name (also read by SDK's EnvResourceDetector)
-/// - `OTEL_TEAM_NAME`: Team responsible for the service
-/// - `OTEL_DEPLOYMENT_ENV`: Deployment environment
-/// - `OTEL_RESOURCE_ATTRIBUTES`: Additional resource attributes (read by SDK's EnvResourceDetector)
+/// - `OTEL_EXPORTER_OTLP_ENDPOINT`: OTLP endpoint URL (overrides config)
+/// - `OTEL_SERVICE_NAME`: Service name (overrides config)
+/// - `OTEL_RESOURCE_ATTRIBUTES`: Additional resource attributes (e.g., "team.name=myteam,deployment.environment.name=prod")
 pub fn init(config: &Config) -> anyhow::Result<ObservabilityGuard> {
     let otel_enabled = config.otel.enabled && !is_otel_sdk_disabled();
 
@@ -109,26 +107,18 @@ fn is_otel_sdk_disabled() -> bool {
     env::var("OTEL_SDK_DISABLED").map(|v| v.eq_ignore_ascii_case("true") || v == "1").unwrap_or(false)
 }
 
-/// Applies OTEL environment variable overrides to the configuration.
+/// Applies standard OTEL environment variable overrides to the configuration.
 ///
 /// Environment variables take precedence over YAML configuration values.
 fn apply_otel_env_overrides(config: &OtelConfig) -> OtelConfig {
     let mut config = config.clone();
 
-    if let Ok(endpoint) = env::var("OTEL_ENDPOINT") {
+    if let Ok(endpoint) = env::var("OTEL_EXPORTER_OTLP_ENDPOINT") {
         config.endpoint = endpoint;
     }
 
     if let Ok(service_name) = env::var("OTEL_SERVICE_NAME") {
         config.service_name = service_name;
-    }
-
-    if let Ok(team_name) = env::var("OTEL_TEAM_NAME") {
-        config.team_name = team_name;
-    }
-
-    if let Ok(deployment_env) = env::var("OTEL_DEPLOYMENT_ENV") {
-        config.deployment_env = deployment_env;
     }
 
     config
@@ -187,8 +177,6 @@ fn init_otel(config: &OtelConfig) -> anyhow::Result<ObservabilityGuard> {
         traces_endpoint = %traces_endpoint,
         metrics_endpoint = %metrics_endpoint,
         service_name = %config.service_name,
-        team_name = %config.team_name,
-        deployment_env = %config.deployment_env,
         logs_enabled = config.logs.enabled,
         traces_enabled = config.traces.enabled,
         metrics_enabled = config.metrics.enabled,
@@ -199,15 +187,14 @@ fn init_otel(config: &OtelConfig) -> anyhow::Result<ObservabilityGuard> {
 }
 
 /// Creates an OTEL resource with service attributes.
+///
+/// Additional attributes like `team.name` and `deployment.environment.name`
+/// can be set via the `OTEL_RESOURCE_ATTRIBUTES` environment variable.
 fn create_resource(config: &OtelConfig) -> Resource {
     // Build the base attributes
-    let mut attributes = vec![
-        KeyValue::new("service.version", env!("CARGO_PKG_VERSION")),
-        KeyValue::new("team.name", config.team_name.clone()),
-        KeyValue::new("deployment.environment.name", config.deployment_env.clone()),
-    ];
+    let mut attributes = vec![KeyValue::new("service.version", env!("CARGO_PKG_VERSION"))];
 
-    // Add any custom resource attributes
+    // Add any custom resource attributes from config
     for (key, value) in &config.resource_attributes {
         attributes.push(KeyValue::new(key.clone(), value.clone()));
     }
