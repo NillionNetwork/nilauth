@@ -2,6 +2,7 @@ use crate::cleanup::RevokedTokenCleaner;
 use crate::config::Config;
 use crate::db::revocations::PostgresRevocationDb;
 use crate::db::{PostgresPool, subscriptions::PostgresSubscriptionDb};
+use crate::observability::ObservabilityGuard;
 use crate::process_metrics::{OtelProcessMetricsCollector, ProcessMetricsCollector};
 use crate::services::ethereum_rpc::AlloyBurnWithDigestEventRetriever;
 use crate::services::subscription_cost::DefaultSubscriptionCostService;
@@ -26,7 +27,7 @@ use tracing::info;
 /// This function sets up the database connection, services, application state,
 /// and starts the main application and metrics servers. It also handles
 /// graceful shutdown on receiving a termination signal.
-pub async fn run(config: Config) -> anyhow::Result<()> {
+pub async fn run(config: Config, observability_guard: &ObservabilityGuard) -> anyhow::Result<()> {
     info!("Starting nilauth service");
     info!(
         server_endpoint = %config.server.bind_endpoint,
@@ -99,9 +100,8 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         .allow_origin(tower_http::cors::Any);
 
     // Check if OTEL metrics are enabled (mutually exclusive with Prometheus)
-    let otel_metrics_enabled = config.otel.enabled && config.otel.metrics.enabled;
-
-    if otel_metrics_enabled {
+    // Use the guard's method which accounts for runtime conditions like OTEL_SDK_DISABLED
+    if observability_guard.otel_metrics_enabled() {
         info!("Exporting OTEL metrics.");
 
         let router = crate::routes::build_router(state).layer(cors);

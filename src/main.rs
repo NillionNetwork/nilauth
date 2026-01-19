@@ -28,7 +28,7 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    let result = run(config).await;
+    let result = run(config, &observability_guard).await;
 
     // Explicitly shutdown observability to flush pending traces/logs.
     // Necessary because exit() doesn't run destructors.
