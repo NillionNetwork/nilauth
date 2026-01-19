@@ -157,7 +157,7 @@ static OTEL_PROCESS_DISK_IO: LazyLock<Counter<u64>> = LazyLock::new(|| {
 /// Counter for disk I/O syscalls.
 static OTEL_PROCESS_DISK_SYSCALLS: LazyLock<Counter<u64>> = LazyLock::new(|| {
     meter()
-        .u64_counter("nilauth.process.disk.syscalls")
+        .u64_counter("process.disk.syscalls")
         .with_description("Total number of disk read/write syscalls")
         .with_unit("{syscall}")
         .build()
@@ -166,7 +166,7 @@ static OTEL_PROCESS_DISK_SYSCALLS: LazyLock<Counter<u64>> = LazyLock::new(|| {
 /// Gauge for established TCP connections for this process.
 static OTEL_PROCESS_NETWORK_CONNECTIONS: LazyLock<Gauge<i64>> = LazyLock::new(|| {
     meter()
-        .i64_gauge("nilauth.process.network.connection")
+        .i64_gauge("process.network.connection.count")
         .with_description("Number of established TCP connections for this process")
         .with_unit("{connection}")
         .build()
