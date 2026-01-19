@@ -326,3 +326,35 @@ pub fn record_process_disk_syscalls(count: u64, direction: &str) {
 pub fn record_network_connections(count: i64) {
     OTEL_PROCESS_NETWORK_CONNECTIONS.record(count, &[]);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn otel_metrics_recording() {
+        // Verify all recording functions execute without panic.
+        // Uses no-op provider in tests so we can't verify values, only execution.
+
+        // Application metrics
+        record_invalid_payment("underpaid");
+        record_valid_payment("NilDb");
+        record_nuc_minted("NilAi");
+        record_token_revoked();
+        record_expired_tokens_removed(5);
+        record_token_price_fetch_error();
+        record_token_price_cache_hit();
+        record_token_price(1.5);
+        record_token_price_fetch_duration(0.5);
+
+        // Process metrics
+        record_process_cpu_time(1.0);
+        record_process_memory_usage(1024.0);
+        record_process_open_fd_count(10);
+        record_process_thread_count(4);
+        record_process_disk_io(1024, "read");
+        record_process_disk_io(2048, "write");
+        record_process_disk_syscalls(100, "read");
+        record_network_connections(5);
+    }
+}

@@ -32,15 +32,15 @@ mod otel_collector {
 }
 
 #[cfg(target_os = "linux")]
-mod collector {
+pub(crate) mod collector {
     use metrics::{counter, gauge};
     use procfs::{WithCurrentSystemInfo, net::TcpState, process::Process};
     use std::{sync::LazyLock, time::Duration};
     use tokio::time::sleep;
     use tracing::warn;
 
-    static TICKS_PER_SECOND: LazyLock<f64> = LazyLock::new(|| procfs::ticks_per_second() as f64);
-    const COLLECT_INTERVAL: Duration = Duration::from_secs(30);
+    pub(crate) static TICKS_PER_SECOND: LazyLock<f64> = LazyLock::new(|| procfs::ticks_per_second() as f64);
+    pub(crate) const COLLECT_INTERVAL: Duration = Duration::from_secs(30);
 
     /// Metrics about the node process.
     pub struct ProcessMetricsCollector;
@@ -106,7 +106,7 @@ mod collector {
 }
 
 #[cfg(target_os = "linux")]
-mod otel_collector {
+pub(crate) mod otel_collector {
     use crate::metrics;
     use procfs::{WithCurrentSystemInfo, net::TcpState, process::Process};
     use std::{sync::LazyLock, time::Duration};
@@ -114,17 +114,17 @@ mod otel_collector {
     use tracing::warn;
 
     static TICKS_PER_SECOND: LazyLock<f64> = LazyLock::new(|| procfs::ticks_per_second() as f64);
-    const COLLECT_INTERVAL: Duration = Duration::from_secs(30);
+    pub(crate) const COLLECT_INTERVAL: Duration = Duration::from_secs(30);
 
     /// Tracks previous values for cumulative metrics to compute deltas.
     /// OTEL counters use `add()` which increments, so we must track deltas ourselves.
     #[derive(Default)]
-    struct PreviousValues {
-        cpu_ticks: u64,
-        disk_read_bytes: u64,
-        disk_write_bytes: u64,
-        disk_read_syscalls: u64,
-        disk_write_syscalls: u64,
+    pub(crate) struct PreviousValues {
+        pub(crate) cpu_ticks: u64,
+        pub(crate) disk_read_bytes: u64,
+        pub(crate) disk_write_bytes: u64,
+        pub(crate) disk_read_syscalls: u64,
+        pub(crate) disk_write_syscalls: u64,
     }
 
     static PREVIOUS: LazyLock<Mutex<PreviousValues>> = LazyLock::new(|| Mutex::new(PreviousValues::default()));
