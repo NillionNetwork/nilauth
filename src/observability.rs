@@ -127,8 +127,12 @@ fn apply_otel_env_overrides(config: &OtelConfig) -> OtelConfig {
 }
 
 /// Initializes standard fmt logging.
+///
+/// Uses `try_init()` to gracefully handle the case where a subscriber is already set
+/// (e.g., in integration tests that initialize tracing before calling this function).
 fn init_fmt_logging() -> anyhow::Result<ObservabilityGuard> {
-    tracing_subscriber::fmt().init();
+    // Ignore SetGlobalDefaultError. If a subscriber is already set, that's fine
+    let _ = tracing_subscriber::fmt().try_init();
     Ok(ObservabilityGuard { logger_provider: None, tracer_provider: None, meter_provider: None })
 }
 
