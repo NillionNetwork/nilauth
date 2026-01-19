@@ -178,9 +178,10 @@ impl Default for OtelTracesConfig {
 #[serde_as]
 #[derive(Clone, Deserialize)]
 pub struct OtelMetricsConfig {
-    /// Whether metrics export is enabled.
+    /// Whether metrics export is enabled
     /// When enabled, OTEL metrics are used instead of Prometheus metrics.
-    #[serde(default)]
+    /// Set to `false` to keep using Prometheus metrics while still using OTEL for logs/traces.
+    #[serde(default = "default_true")]
     pub enabled: bool,
 
     /// Optional endpoint override for metrics export.
@@ -196,7 +197,7 @@ pub struct OtelMetricsConfig {
 
 impl Default for OtelMetricsConfig {
     fn default() -> Self {
-        Self { enabled: false, endpoint: None, export_interval: default_metrics_export_interval() }
+        Self { enabled: true, endpoint: None, export_interval: default_metrics_export_interval() }
     }
 }
 

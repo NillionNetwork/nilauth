@@ -33,7 +33,7 @@ metrics:
 #     enabled: true  # default: true (when otel.enabled is true)
 #     endpoint: "http://localhost:4317"  # optional, overrides global endpoint
 #   metrics:
-#     enabled: false  # default: false - when enabled, disables Prometheus metrics
+#     enabled: true  # default: true - set to false to keep using Prometheus metrics
 #     endpoint: "http://localhost:4317"  # optional, overrides global endpoint
 #     export_interval: 15  # seconds between metric exports (default: 15)
 
