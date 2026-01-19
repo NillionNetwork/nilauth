@@ -179,7 +179,8 @@ impl Default for OtelTracesConfig {
 }
 
 /// OpenTelemetry metrics export configuration.
-#[derive(Clone, Default, Deserialize)]
+#[serde_as]
+#[derive(Clone, Deserialize)]
 pub struct OtelMetricsConfig {
     /// Whether metrics export is enabled.
     /// When enabled, OTEL metrics are used instead of Prometheus metrics.
@@ -190,6 +191,17 @@ pub struct OtelMetricsConfig {
     /// If not set, uses the global `otel.endpoint`.
     #[serde(default)]
     pub endpoint: Option<String>,
+
+    /// The interval at which metrics are exported.
+    #[serde_as(as = "serde_with::DurationSeconds<u64>")]
+    #[serde(default = "default_metrics_export_interval")]
+    pub export_interval: Duration,
+}
+
+impl Default for OtelMetricsConfig {
+    fn default() -> Self {
+        Self { enabled: false, endpoint: None, export_interval: default_metrics_export_interval() }
+    }
 }
 
 /// The payments configuration.
@@ -305,4 +317,8 @@ fn default_true() -> bool {
 
 fn default_export_timeout() -> Duration {
     Duration::from_secs(30)
+}
+
+fn default_metrics_export_interval() -> Duration {
+    Duration::from_secs(60)
 }

@@ -246,7 +246,7 @@ fn build_log_exporter(config: &OtelConfig) -> anyhow::Result<LogExporter> {
 /// Initializes the OTEL meter provider with OTLP export.
 fn init_meter_provider(config: &OtelConfig, resource: Resource) -> anyhow::Result<SdkMeterProvider> {
     let exporter = build_metric_exporter(config)?;
-    let reader = PeriodicReader::builder(exporter).build();
+    let reader = PeriodicReader::builder(exporter).with_interval(config.metrics.export_interval).build();
     let provider = SdkMeterProvider::builder().with_resource(resource).with_reader(reader).build();
 
     Ok(provider)
