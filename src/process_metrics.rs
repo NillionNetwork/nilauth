@@ -109,11 +109,8 @@ mod collector {
 mod otel_collector {
     use crate::metrics;
     use procfs::{WithCurrentSystemInfo, net::TcpState, process::Process};
-    use std::{
-        sync::{LazyLock, Mutex},
-        time::Duration,
-    };
-    use tokio::time::sleep;
+    use std::{sync::LazyLock, time::Duration};
+    use tokio::{sync::Mutex, time::sleep};
     use tracing::warn;
 
     static TICKS_PER_SECOND: LazyLock<f64> = LazyLock::new(|| procfs::ticks_per_second() as f64);
@@ -140,13 +137,13 @@ mod otel_collector {
         pub fn spawn() {
             tokio::spawn(async move {
                 loop {
-                    Self::collect_metrics();
+                    Self::collect_metrics().await;
                     sleep(COLLECT_INTERVAL).await;
                 }
             });
         }
 
-        fn collect_metrics() {
+        async fn collect_metrics() {
             let process = match Process::myself() {
                 Ok(p) => p,
                 Err(e) => {
@@ -162,7 +159,7 @@ mod otel_collector {
                 }
             };
 
-            let mut prev = PREVIOUS.lock().unwrap();
+            let mut prev = PREVIOUS.lock().await;
             let tick_rate = *TICKS_PER_SECOND;
 
             // CPU time - compute delta from previous reading
