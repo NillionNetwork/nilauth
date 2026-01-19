@@ -41,23 +41,33 @@ impl ObservabilityGuard {
 
     /// Internal helper to shut down all providers.
     ///
+    /// Flushes pending data before shutdown to ensure nothing is lost.
     /// Uses tracing::error! for consistency. The fmt layer remains active even
     /// after OTEL providers are shut down, so errors will still be logged.
     fn shutdown_providers(&mut self) {
-        if let Some(provider) = self.meter_provider.take()
-            && let Err(e) = provider.shutdown()
-        {
-            error!("Error shutting down meter provider: {e}");
+        if let Some(provider) = self.meter_provider.take() {
+            if let Err(e) = provider.force_flush() {
+                error!("Error flushing meter provider: {e}");
+            }
+            if let Err(e) = provider.shutdown() {
+                error!("Error shutting down meter provider: {e}");
+            }
         }
-        if let Some(provider) = self.tracer_provider.take()
-            && let Err(e) = provider.shutdown()
-        {
-            error!("Error shutting down tracer provider: {e}");
+        if let Some(provider) = self.tracer_provider.take() {
+            if let Err(e) = provider.force_flush() {
+                error!("Error flushing tracer provider: {e}");
+            }
+            if let Err(e) = provider.shutdown() {
+                error!("Error shutting down tracer provider: {e}");
+            }
         }
-        if let Some(provider) = self.logger_provider.take()
-            && let Err(e) = provider.shutdown()
-        {
-            error!("Error shutting down logger provider: {e}");
+        if let Some(provider) = self.logger_provider.take() {
+            if let Err(e) = provider.force_flush() {
+                error!("Error flushing logger provider: {e}");
+            }
+            if let Err(e) = provider.shutdown() {
+                error!("Error shutting down logger provider: {e}");
+            }
         }
     }
 }
